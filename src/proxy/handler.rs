@@ -12,6 +12,8 @@ use crate::oauth::AuthType;
 use crate::proxy::ProxyState;
 use crate::router::classifier;
 
+const IMAGE_HISTORY_PLACEHOLDER_PREFIX: &str = "[Previous image omitted by claudex";
+
 pub async fn handle_messages(
     State(state): State<Arc<ProxyState>>,
     Path(profile_name): Path<String>,
@@ -58,6 +60,15 @@ pub async fn handle_messages(
             return (StatusCode::BAD_REQUEST, format!("invalid JSON: {e}")).into_response();
         }
     };
+    let image_history = prune_historical_images(&mut body_value);
+    if image_history.omitted_images > 0 {
+        tracing::info!(
+            omitted_images = image_history.omitted_images,
+            omitted_base64_bytes = image_history.omitted_base64_bytes,
+            kept_image_message = ?image_history.kept_message_index,
+            "pruned historical image payloads"
+        );
+    }
 
     // --- Smart Routing: resolve "auto" profile ---
     let resolved_profile_name = if profile_name == "auto" {
@@ -342,6 +353,11 @@ async fn try_forward(
     let adapter = super::adapter::for_provider(&profile.provider_type);
     let mut translated = adapter.translate_request(body, profile)?;
     adapter.filter_translated_body(&mut translated.body, profile);
+    let upstream_is_streaming = translated
+        .body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(is_streaming);
 
     let mut url = format!(
         "{}{}",
@@ -367,7 +383,7 @@ async fn try_forward(
         profile = %profile.name,
         url = %url,
         api_key = %key_preview,
-        streaming = %is_streaming,
+        streaming = %upstream_is_streaming,
         model = %translated.body.get("model").and_then(|v| v.as_str()).unwrap_or("-"),
         "forwarding request"
     );
@@ -485,7 +501,7 @@ async fn try_forward(
             anyhow::bail!("upstream returned HTTP {status}: {err_body}");
         }
 
-        if is_streaming {
+        if upstream_is_streaming {
             let stream = resp.bytes_stream();
             let translated_stream =
                 adapter.translate_stream(Box::pin(stream), translated.tool_name_map);
@@ -557,9 +573,109 @@ fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ImageHistoryStats {
+    kept_message_index: Option<usize>,
+    omitted_images: usize,
+    omitted_base64_bytes: usize,
+}
+
+fn prune_historical_images(body: &mut Value) -> ImageHistoryStats {
+    let messages = match body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        Some(messages) => messages,
+        None => return ImageHistoryStats::default(),
+    };
+
+    let kept_message_index = messages.iter().rposition(message_has_image);
+    let mut stats = ImageHistoryStats {
+        kept_message_index,
+        ..ImageHistoryStats::default()
+    };
+
+    for (index, message) in messages.iter_mut().enumerate() {
+        if Some(index) != kept_message_index {
+            prune_images_in_message(message, &mut stats);
+        }
+    }
+
+    stats
+}
+
+fn message_has_image(message: &Value) -> bool {
+    message
+        .get("content")
+        .map(content_has_image)
+        .unwrap_or(false)
+}
+
+fn content_has_image(content: &Value) -> bool {
+    match content {
+        Value::Array(parts) => parts.iter().any(|part| {
+            part.get("type").and_then(|t| t.as_str()) == Some("image")
+                || part.get("content").map(content_has_image).unwrap_or(false)
+        }),
+        _ => false,
+    }
+}
+
+fn prune_images_in_message(message: &mut Value, stats: &mut ImageHistoryStats) {
+    if let Some(content) = message.get_mut("content") {
+        prune_images_in_content(content, stats);
+    }
+}
+
+fn prune_images_in_content(content: &mut Value, stats: &mut ImageHistoryStats) {
+    let parts = match content.as_array_mut() {
+        Some(parts) => parts,
+        None => return,
+    };
+
+    let mut replacement = Vec::with_capacity(parts.len());
+    for mut part in std::mem::take(parts) {
+        if part.get("type").and_then(|t| t.as_str()) == Some("image") {
+            stats.omitted_images += 1;
+            let (media_type, approx_bytes) = image_metadata(&part);
+            stats.omitted_base64_bytes += approx_bytes;
+            replacement.push(json_text_block(format!(
+                "{IMAGE_HISTORY_PLACEHOLDER_PREFIX}: {media_type}, approx {approx_bytes} base64 bytes. Re-attach the image if visual details are needed.]"
+            )));
+            continue;
+        }
+
+        if let Some(nested) = part.get_mut("content") {
+            prune_images_in_content(nested, stats);
+        }
+        replacement.push(part);
+    }
+
+    *parts = replacement;
+}
+
+fn image_metadata(image: &Value) -> (&str, usize) {
+    let source = image.get("source");
+    let media_type = source
+        .and_then(|s| s.get("media_type"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("image/*");
+    let approx_bytes = source
+        .and_then(|s| s.get("data"))
+        .and_then(|d| d.as_str())
+        .map(str::len)
+        .unwrap_or(0);
+    (media_type, approx_bytes)
+}
+
+fn json_text_block(text: String) -> Value {
+    serde_json::json!({
+        "type": "text",
+        "text": text,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     // ── truncate_at_char_boundary ──
 
@@ -701,5 +817,85 @@ mod tests {
             })
             .unwrap_or_default();
         assert!(text.is_empty());
+    }
+
+    #[test]
+    fn test_prune_keeps_newest_image_message_and_prunes_older_images() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": "old screenshot"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aaaa"}}
+                ]},
+                {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "new screenshot"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "bbbb"}}
+                ]}
+            ]
+        });
+
+        let stats = prune_historical_images(&mut body);
+
+        assert_eq!(stats.kept_message_index, Some(2));
+        assert_eq!(stats.omitted_images, 1);
+        assert_eq!(stats.omitted_base64_bytes, 4);
+        let old_content = body["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(old_content.len(), 2);
+        assert_eq!(old_content[1]["type"], "text");
+        assert!(old_content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Previous image omitted by claudex"));
+        assert_eq!(body["messages"][2]["content"][1]["type"], "image");
+    }
+
+    #[test]
+    fn test_prune_keeps_last_image_across_followup_text_turns() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aaaa"}}
+                ]},
+                {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": "what about that image?"}
+            ]
+        });
+
+        let stats = prune_historical_images(&mut body);
+
+        assert_eq!(stats.kept_message_index, Some(0));
+        assert_eq!(stats.omitted_images, 0);
+        assert_eq!(body["messages"][0]["content"][0]["type"], "image");
+    }
+
+    #[test]
+    fn test_prune_images_inside_old_tool_results() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+                        {"type": "text", "text": "Image loaded."},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "cccccc"}}
+                    ]}
+                ]},
+                {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "dddd"}}
+                ]}
+            ]
+        });
+
+        let stats = prune_historical_images(&mut body);
+
+        assert_eq!(stats.kept_message_index, Some(2));
+        assert_eq!(stats.omitted_images, 1);
+        assert_eq!(stats.omitted_base64_bytes, 6);
+        let nested = body["messages"][0]["content"][0]["content"]
+            .as_array()
+            .unwrap();
+        assert_eq!(nested.len(), 2);
+        assert_eq!(nested[1]["type"], "text");
+        assert!(nested[1]["text"].as_str().unwrap().contains("image/webp"));
     }
 }

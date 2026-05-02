@@ -18,11 +18,14 @@ impl ProviderAdapter for ResponsesAdapter {
         body: &Value,
         profile: &ProfileConfig,
     ) -> Result<TranslatedRequest> {
-        let (responses_body, tool_name_map) =
+        let (mut responses_body, tool_name_map) =
             crate::proxy::translate::responses::anthropic_to_responses(
                 body,
                 &profile.default_model,
             )?;
+        if profile.base_url.contains("chatgpt.com/backend-api/codex") {
+            responses_body["stream"] = serde_json::json!(true);
+        }
         Ok(TranslatedRequest {
             body: responses_body,
             tool_name_map,

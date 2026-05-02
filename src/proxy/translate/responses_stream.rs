@@ -91,6 +91,7 @@ struct ResponsesStreamState {
     has_tool_use: bool,
     stop_reason: String,
     output_tokens: u64,
+    saw_text_delta: bool,
 }
 
 impl ResponsesStreamState {
@@ -102,6 +103,7 @@ impl ResponsesStreamState {
             has_tool_use: false,
             stop_reason: "end_turn".to_string(),
             output_tokens: 0,
+            saw_text_delta: false,
         }
     }
 
@@ -133,6 +135,7 @@ impl ResponsesStreamState {
                 if delta.is_empty() {
                     return vec![];
                 }
+                self.saw_text_delta = true;
 
                 let mut events = Vec::new();
 
@@ -174,6 +177,20 @@ impl ResponsesStreamState {
                     return vec![event];
                 }
                 vec![]
+            }
+            "response.output_item.done" => {
+                let empty = json!({});
+                let item = json.get("item").unwrap_or(&empty);
+                if self.saw_text_delta
+                    || item.get("type").and_then(|t| t.as_str()) != Some("message")
+                {
+                    return vec![];
+                }
+                let text = extract_message_text(item);
+                if text.is_empty() {
+                    return vec![];
+                }
+                self.emit_text_block(&text)
             }
             "response.output_item.added" => {
                 // Check if it's a function_call
@@ -276,6 +293,18 @@ impl ResponsesStreamState {
                     if status == "incomplete" {
                         self.stop_reason = "max_tokens".to_string();
                     }
+                    if !self.saw_text_delta && !self.block_started {
+                        if let Some(output) = resp.get("output").and_then(|o| o.as_array()) {
+                            for item in output {
+                                if item.get("type").and_then(|t| t.as_str()) == Some("message") {
+                                    let text = extract_message_text(item);
+                                    if !text.is_empty() {
+                                        return self.emit_text_block(&text);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 // Don't emit anything here — finalization happens in the outer stream
                 vec![]
@@ -287,6 +316,49 @@ impl ResponsesStreamState {
             _ => vec![],
         }
     }
+
+    fn emit_text_block(&mut self, text: &str) -> Vec<String> {
+        let events = vec![
+            format_sse(
+                "content_block_start",
+                &json!({
+                    "type": "content_block_start",
+                    "index": self.block_index,
+                    "content_block": {"type": "text", "text": ""},
+                }),
+            ),
+            format_sse(
+                "content_block_delta",
+                &json!({
+                    "type": "content_block_delta",
+                    "index": self.block_index,
+                    "delta": {"type": "text_delta", "text": text},
+                }),
+            ),
+        ];
+        self.block_started = true;
+        self.saw_text_delta = true;
+        events
+    }
+}
+
+fn extract_message_text(item: &Value) -> String {
+    item.get("content")
+        .and_then(|c| c.as_array())
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| {
+                    matches!(
+                        p.get("type").and_then(|t| t.as_str()),
+                        Some("output_text") | Some("text")
+                    )
+                })
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -341,5 +413,16 @@ mod tests {
             r#"data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":100,"output_tokens":50,"total_tokens":150}}}"#,
         );
         assert_eq!(state.output_tokens, 50);
+    }
+
+    #[test]
+    fn test_output_item_done_message_text() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state.process_line(
+            r#"data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"text","text":"Compact summary"}]}}"#,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(events[0].contains("content_block_start"));
+        assert!(events[1].contains("Compact summary"));
     }
 }

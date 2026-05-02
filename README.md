@@ -31,6 +31,9 @@
 
 ---
 
+> This fork is based on [StringKe/claudex](https://github.com/StringKe/claudex) `v0.2.4`.
+> Upstream Claudex is distributed under the MIT License; see [LICENSE](./LICENSE).
+
 Claudex is a unified proxy that lets [Claude Code](https://docs.anthropic.com/en/docs/claude-code) seamlessly work with multiple AI providers through automatic protocol translation.
 
 ## Features

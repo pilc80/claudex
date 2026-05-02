@@ -37,11 +37,19 @@ pub fn anthropic_to_responses(
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("call_0");
                                     let output = extract_tool_result_content(block);
+                                    let images = extract_tool_result_images(block);
                                     input.push(json!({
                                         "type": "function_call_output",
                                         "call_id": call_id,
                                         "output": output,
                                     }));
+                                    if !images.is_empty() {
+                                        input.push(json!({
+                                            "role": "user",
+                                            "type": "message",
+                                            "content": images,
+                                        }));
+                                    }
                                 }
                             }
                         }
@@ -238,7 +246,7 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
                     if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
                         for part in parts {
                             let part_type = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                            if part_type == "output_text" {
+                            if part_type == "output_text" || part_type == "text" {
                                 if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                     content.push(json!({
                                         "type": "text",
@@ -276,6 +284,16 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
                     }));
                 }
                 _ => {}
+            }
+        }
+    }
+    if content.is_empty() {
+        if let Some(text) = resp.get("output_text").and_then(|t| t.as_str()) {
+            if !text.is_empty() {
+                content.push(json!({
+                    "type": "text",
+                    "text": text,
+                }));
             }
         }
     }
@@ -320,6 +338,42 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
     }))
 }
 
+fn convert_image_block(block: &Value) -> Option<Value> {
+    let source = block.get("source")?;
+    if source.get("type").and_then(|t| t.as_str()) != Some("base64") {
+        return None;
+    }
+
+    let data = source.get("data")?.as_str()?;
+    if data.is_empty() {
+        return None;
+    }
+
+    let media_type = source
+        .get("media_type")
+        .and_then(|m| m.as_str())
+        .unwrap_or("image/png");
+
+    Some(json!({
+        "type": "input_image",
+        "image_url": format!("data:{media_type};base64,{data}"),
+    }))
+}
+
+fn extract_tool_result_images(block: &Value) -> Vec<Value> {
+    block
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("image"))
+                .filter_map(convert_image_block)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn convert_user_content(content: Option<&Value>) -> Vec<Value> {
     match content {
         Some(Value::String(s)) => vec![json!({"type": "input_text", "text": s})],
@@ -332,22 +386,7 @@ fn convert_user_content(content: Option<&Value>) -> Vec<Value> {
                         let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
                         Some(json!({"type": "input_text", "text": text}))
                     }
-                    Some("image") => {
-                        // Anthropic base64 image → OpenAI image_url
-                        let source = p.get("source");
-                        let media_type = source
-                            .and_then(|s| s.get("media_type"))
-                            .and_then(|m| m.as_str())
-                            .unwrap_or("image/png");
-                        let data = source
-                            .and_then(|s| s.get("data"))
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("");
-                        Some(json!({
-                            "type": "input_image",
-                            "image_url": format!("data:{media_type};base64,{data}"),
-                        }))
-                    }
+                    Some("image") => convert_image_block(p),
                     Some("tool_result") => {
                         // tool_result at user level → function_call_output
                         // This shouldn't normally appear here but handle it
@@ -439,6 +478,56 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_result_image_content_becomes_user_image_message() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [
+                {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/tmp/image.png"}}
+                ]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+                        {"type": "text", "text": "Image loaded."},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/AA=="}}
+                    ]}
+                ]}
+            ],
+            "max_tokens": 1024,
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[1]["type"], "function_call_output");
+        assert_eq!(input[1]["output"], "Image loaded.");
+        assert_eq!(input[2]["role"], "user");
+        assert_eq!(input[2]["content"][0]["type"], "input_image");
+        assert_eq!(
+            input[2]["content"][0]["image_url"],
+            "data:image/jpeg;base64,/9j/AA=="
+        );
+    }
+
+    #[test]
+    fn test_empty_image_source_is_not_forwarded() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Describe this."},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}}
+                ]}
+            ],
+            "max_tokens": 1024,
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        let content = body["input"][0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "input_text");
+    }
+
+    #[test]
     fn test_responses_to_anthropic_text() {
         let resp = json!({
             "id": "resp_123",
@@ -461,6 +550,44 @@ mod tests {
         assert_eq!(result["content"][0]["type"], "text");
         assert_eq!(result["content"][0]["text"], "Hello!");
         assert_eq!(result["usage"]["input_tokens"], 10);
+    }
+
+    #[test]
+    fn test_responses_to_anthropic_text_part_shape() {
+        let resp = json!({
+            "id": "resp_123",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "text", "text": "Compact summary"}
+                    ]
+                }
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        });
+        let result = responses_to_anthropic(&resp, &HashMap::new()).unwrap();
+        assert_eq!(result["content"][0]["type"], "text");
+        assert_eq!(result["content"][0]["text"], "Compact summary");
+    }
+
+    #[test]
+    fn test_responses_to_anthropic_output_text_fallback() {
+        let resp = json!({
+            "id": "resp_123",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output_text": "Compact summary",
+            "output": [],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        });
+        let result = responses_to_anthropic(&resp, &HashMap::new()).unwrap();
+        assert_eq!(result["content"][0]["type"], "text");
+        assert_eq!(result["content"][0]["text"], "Compact summary");
     }
 
     #[test]
