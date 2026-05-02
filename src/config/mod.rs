@@ -116,6 +116,9 @@ pub struct ProfileConfig {
     /// 模型 slot 映射（对应 Claude Code 的 /model 切换）
     #[serde(default)]
     pub models: ProfileModels,
+    /// Optional model for current-turn image requests.
+    #[serde(default)]
+    pub image_model: Option<String>,
     /// 最大输出 token 数上限（可选，用于限制转发给 provider 的 max_tokens）
     #[serde(default)]
     pub max_tokens: Option<u64>,
@@ -217,6 +220,7 @@ impl Default for ProfileConfig {
             auth_type: AuthType::default(),
             oauth_provider: None,
             models: ProfileModels::default(),
+            image_model: None,
             max_tokens: None,
             strip_params: StripParams::default(),
             query_params: HashMap::new(),
@@ -1024,10 +1028,12 @@ profiles:
 
     #[test]
     fn test_figment_toml_save_load_roundtrip() {
-        let mut config = ClaudexConfig::default();
-        config.proxy_port = 5555;
-        config.log_level = "warn".to_string();
-        config.config_format = ConfigFormat::Toml;
+        let config = ClaudexConfig {
+            proxy_port: 5555,
+            log_level: "warn".to_string(),
+            config_format: ConfigFormat::Toml,
+            ..ClaudexConfig::default()
+        };
 
         let toml_content = toml::to_string_pretty(&config).unwrap();
         let figment = Figment::from(Serialized::defaults(ClaudexConfig::default()))
@@ -1039,10 +1045,12 @@ profiles:
 
     #[test]
     fn test_figment_yaml_save_load_roundtrip() {
-        let mut config = ClaudexConfig::default();
-        config.proxy_port = 6666;
-        config.log_level = "error".to_string();
-        config.config_format = ConfigFormat::Yaml;
+        let config = ClaudexConfig {
+            proxy_port: 6666,
+            log_level: "error".to_string(),
+            config_format: ConfigFormat::Yaml,
+            ..ClaudexConfig::default()
+        };
 
         let yaml_content = serde_yml::to_string(&config).unwrap();
         let figment = Figment::from(Serialized::defaults(ClaudexConfig::default()))

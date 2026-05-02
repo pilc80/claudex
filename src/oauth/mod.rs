@@ -140,7 +140,7 @@ mod tests {
         let token = OAuthToken {
             access_token: "test".to_string(),
             refresh_token: None,
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600_000),
+            expires_at: Some(chrono::Utc::now().timestamp_millis() + 3_600_000),
             token_type: None,
             scopes: None,
             extra: None,
@@ -329,8 +329,8 @@ mod tests {
 
         let expires = token.expires_at.unwrap();
         // expires_at should be ~now + 7200*1000
-        assert!(expires >= before + 7200_000);
-        assert!(expires <= after + 7200_000);
+        assert!(expires >= before + 7_200_000);
+        assert!(expires <= after + 7_200_000);
     }
 
     #[test]

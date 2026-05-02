@@ -8,7 +8,4 @@
 // for test construction, which will be done in a follow-up PR.
 
 #[test]
-fn test_integration_framework_exists() {
-    // Placeholder: verifies the test file compiles
-    assert!(true);
-}
+fn test_integration_framework_exists() {}

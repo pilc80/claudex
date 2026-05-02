@@ -19,24 +19,9 @@ where
     let mut state = ResponsesStreamState::new(tool_name_map);
 
     let output = async_stream::stream! {
-        // Send message_start immediately
-        let msg_start = format_sse("message_start", &json!({
-            "type": "message_start",
-            "message": {
-                "id": format!("msg_{}", uuid::Uuid::new_v4()),
-                "type": "message",
-                "role": "assistant",
-                "model": "claudex-proxy",
-                "content": [],
-                "stop_reason": null,
-                "stop_sequence": null,
-                "usage": {"input_tokens": 0, "output_tokens": 0}
-            }
-        }));
-        yield Ok(Bytes::from(msg_start));
-
         let mut stream = std::pin::pin!(input);
         let mut buffer = String::new();
+        let mut message_started = false;
 
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
@@ -53,15 +38,27 @@ where
                         }
 
                         for event in state.process_line(&line) {
+                            if event.starts_with("event: error") {
+                                yield Ok(Bytes::from(event));
+                                return;
+                            }
+                            if !message_started {
+                                yield Ok(Bytes::from(message_start_event()));
+                                message_started = true;
+                            }
                             yield Ok(Bytes::from(event));
                         }
                     }
                 }
                 Err(e) => {
-                    yield Err(e);
+                    yield Ok(Bytes::from(format_error_event(&format!("upstream stream read error: {e}"))));
                     return;
                 }
             }
+        }
+
+        if !message_started {
+            yield Ok(Bytes::from(message_start_event()));
         }
 
         // Finalize: close any open block and send message_delta + message_stop
@@ -82,6 +79,38 @@ where
     };
 
     Box::pin(output)
+}
+
+fn message_start_event() -> String {
+    format_sse(
+        "message_start",
+        &json!({
+            "type": "message_start",
+            "message": {
+                "id": format!("msg_{}", uuid::Uuid::new_v4()),
+                "type": "message",
+                "role": "assistant",
+                "model": "claudex-proxy",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {"input_tokens": 0, "output_tokens": 0}
+            }
+        }),
+    )
+}
+
+fn format_error_event(message: &str) -> String {
+    format_sse(
+        "error",
+        &json!({
+            "type": "error",
+            "error": {
+                "type": "api_error",
+                "message": message,
+            }
+        }),
+    )
 }
 
 struct ResponsesStreamState {
@@ -310,8 +339,19 @@ impl ResponsesStreamState {
                 vec![]
             }
             "response.failed" => {
-                self.stop_reason = "end_turn".to_string();
-                vec![]
+                let message = json
+                    .pointer("/response/error/message")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| json.pointer("/error/message").and_then(|v| v.as_str()))
+                    .unwrap_or("upstream response failed");
+                vec![format_error_event(message)]
+            }
+            "codex.rate_limits" => {
+                let message = json
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Codex rate limit event received");
+                vec![format_error_event(message)]
             }
             _ => vec![],
         }
@@ -364,6 +404,7 @@ fn extract_message_text(item: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
 
     #[test]
     fn test_text_delta() {
@@ -424,5 +465,39 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(events[0].contains("content_block_start"));
         assert!(events[1].contains("Compact summary"));
+    }
+
+    #[test]
+    fn test_response_failed_emits_anthropic_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state.process_line(
+            r#"data: {"type":"response.failed","response":{"error":{"message":"rate limited"}}}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("rate limited"));
+    }
+
+    #[test]
+    fn test_codex_rate_limits_event_emits_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state
+            .process_line(r#"data: {"type":"codex.rate_limits","message":"rate limit exceeded"}"#);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("rate limit exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_stream_error_before_content_does_not_emit_message_start() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"boom\"}}}\n",
+        ))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+        let first = stream.next().await.unwrap().unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+        assert!(text.contains("event: error"));
+        assert!(!text.contains("message_start"));
+        assert!(stream.next().await.is_none());
     }
 }

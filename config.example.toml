@@ -161,6 +161,8 @@ name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
 default_model = "gpt-5.3-codex"
+# Optional: route current-turn image requests to a cheaper/faster model.
+# image_model = "gpt-5.5-mini"
 auth_type = "oauth"
 oauth_provider = "openai"
 enabled = false

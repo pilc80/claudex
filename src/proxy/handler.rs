@@ -1,13 +1,13 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use crate::config::ProfileConfig;
+use crate::config::{ProfileConfig, ProviderType};
 use crate::oauth::AuthType;
 use crate::proxy::ProxyState;
 use crate::router::classifier;
@@ -346,13 +346,29 @@ async fn try_with_circuit_breaker(
 async fn try_forward(
     state: &ProxyState,
     profile: &ProfileConfig,
-    _headers: &HeaderMap,
+    headers: &HeaderMap,
     body: &Value,
     is_streaming: bool,
 ) -> anyhow::Result<Response> {
     let adapter = super::adapter::for_provider(&profile.provider_type);
-    let mut translated = adapter.translate_request(body, profile)?;
+    let mut body_for_translation = body.clone();
+    apply_metadata_from_headers(&mut body_for_translation, headers, profile);
+    let mut translated = adapter.translate_request(&body_for_translation, profile)?;
     adapter.filter_translated_body(&mut translated.body, profile);
+    let translated_model = translated
+        .body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("<none>");
+    let current_image_route = profile.image_model.is_some()
+        && crate::proxy::translate::responses::request_has_current_image(&body_for_translation);
+    tracing::info!(
+        profile = %profile.name,
+        provider = %profile.provider_type,
+        model = %translated_model,
+        current_image_route,
+        "translated upstream request model"
+    );
     let upstream_is_streaming = translated
         .body
         .get("stream")
@@ -407,21 +423,36 @@ async fn try_forward(
         );
     }
 
-    let mut req = state
-        .http_client
-        .post(&url)
-        .header("content-type", "application/json");
+    let mut attempts = 0;
+    let resp = loop {
+        let mut req = state
+            .http_client
+            .post(&url)
+            .header("content-type", "application/json");
 
-    req = adapter.apply_auth(req, profile);
-    req = adapter.apply_extra_headers(req, profile);
+        req = adapter.apply_auth(req, profile);
+        req = adapter.apply_extra_headers(req, profile);
 
-    for (k, v) in &profile.custom_headers {
-        req = req.header(k.as_str(), v.as_str());
-    }
+        for (k, v) in &profile.custom_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
 
-    req = req.json(&translated.body);
-
-    let resp = req.send().await?;
+        let resp = req.json(&translated.body).send().await?;
+        if resp.status() == StatusCode::TOO_MANY_REQUESTS && attempts < 2 {
+            let delay = retry_after_delay(resp.headers());
+            let err_body = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                profile = %profile.name,
+                retry_after_ms = delay.as_millis(),
+                body = %err_body,
+                "upstream rate-limited request, retrying"
+            );
+            attempts += 1;
+            tokio::time::sleep(delay).await;
+            continue;
+        }
+        break resp;
+    };
     let status = resp.status();
 
     tracing::info!(
@@ -525,6 +556,39 @@ async fn try_forward(
             Ok(response)
         }
     }
+}
+
+fn apply_metadata_from_headers(body: &mut Value, headers: &HeaderMap, profile: &ProfileConfig) {
+    if profile.provider_type != ProviderType::OpenAIResponses {
+        return;
+    }
+
+    let Some(session_id) = headers
+        .get("x-claude-code-session-id")
+        .or_else(|| headers.get("anthropic-session-id"))
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+    else {
+        return;
+    };
+
+    if body.pointer("/metadata/session_id").is_some() {
+        return;
+    }
+
+    if !body.get("metadata").is_some_and(|v| v.is_object()) {
+        body["metadata"] = Value::Object(Map::new());
+    }
+    body["metadata"]["session_id"] = Value::String(session_id.to_string());
+}
+
+fn retry_after_delay(headers: &HeaderMap) -> Duration {
+    let seconds = headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1);
+    Duration::from_secs(seconds.min(5))
 }
 
 /// Extract assistant text from an Anthropic-format response and store for sharing.
@@ -897,5 +961,44 @@ mod tests {
         assert_eq!(nested.len(), 2);
         assert_eq!(nested[1]["type"], "text");
         assert!(nested[1]["text"].as_str().unwrap().contains("image/webp"));
+    }
+
+    #[test]
+    fn test_apply_metadata_from_headers_sets_session_id() {
+        let mut body = json!({"messages": []});
+        let mut headers = HeaderMap::new();
+        headers.insert("x-claude-code-session-id", "session-1".parse().unwrap());
+        let profile = ProfileConfig {
+            provider_type: ProviderType::OpenAIResponses,
+            ..ProfileConfig::default()
+        };
+
+        apply_metadata_from_headers(&mut body, &headers, &profile);
+
+        assert_eq!(body["metadata"]["session_id"], "session-1");
+    }
+
+    #[test]
+    fn test_apply_metadata_from_headers_skips_non_responses_profiles() {
+        let original = json!({"messages": []});
+        let mut body = original.clone();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-claude-code-session-id", "session-1".parse().unwrap());
+        let profile = ProfileConfig {
+            provider_type: ProviderType::DirectAnthropic,
+            ..ProfileConfig::default()
+        };
+
+        apply_metadata_from_headers(&mut body, &headers, &profile);
+
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn test_retry_after_delay_is_capped() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", "30".parse().unwrap());
+
+        assert_eq!(retry_after_delay(&headers), Duration::from_secs(5));
     }
 }

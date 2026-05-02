@@ -296,7 +296,7 @@ mod tests {
                     token: OAuthToken {
                         access_token: "cached-token".to_string(),
                         refresh_token: None,
-                        expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600_000),
+                        expires_at: Some(chrono::Utc::now().timestamp_millis() + 3_600_000),
                         token_type: Some("Bearer".to_string()),
                         scopes: None,
                         extra: None,
@@ -323,7 +323,7 @@ mod tests {
                     token: OAuthToken {
                         access_token: "old".to_string(),
                         refresh_token: None,
-                        expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600_000),
+                        expires_at: Some(chrono::Utc::now().timestamp_millis() + 3_600_000),
                         token_type: None,
                         scopes: None,
                         extra: None,

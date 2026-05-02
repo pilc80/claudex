@@ -184,15 +184,19 @@ mod tests {
 
     #[test]
     fn test_halfopen_allows_attempt() {
-        let mut cb = CircuitBreaker::default();
-        cb.state = CircuitState::HalfOpen;
+        let mut cb = CircuitBreaker {
+            state: CircuitState::HalfOpen,
+            ..CircuitBreaker::default()
+        };
         assert!(cb.can_attempt());
     }
 
     #[test]
     fn test_halfopen_success_closes() {
-        let mut cb = CircuitBreaker::default();
-        cb.state = CircuitState::HalfOpen;
+        let mut cb = CircuitBreaker {
+            state: CircuitState::HalfOpen,
+            ..CircuitBreaker::default()
+        };
         cb.record_success();
         assert_eq!(cb.state, CircuitState::Closed);
         assert_eq!(cb.failure_count, 0);

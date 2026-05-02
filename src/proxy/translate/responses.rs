@@ -1,9 +1,18 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
 use crate::proxy::util::{truncate_tool_name, ToolNameMap};
+
+pub fn request_has_current_image(anthropic: &Value) -> bool {
+    anthropic
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .and_then(|messages| messages.last())
+        .and_then(|message| message.get("content"))
+        .is_some_and(content_has_image)
+}
 
 /// Convert Anthropic Messages API request → OpenAI Responses API request
 pub fn anthropic_to_responses(
@@ -54,7 +63,7 @@ pub fn anthropic_to_responses(
                             }
                         }
                     } else {
-                        let parts = convert_user_content(content);
+                        let parts = convert_user_content(content)?;
                         input.push(json!({
                             "role": "user",
                             "type": "message",
@@ -182,6 +191,10 @@ pub fn anthropic_to_responses(
         body["instructions"] = json!(instructions);
     }
 
+    apply_reasoning(&mut body, anthropic);
+    apply_text_format(&mut body, anthropic)?;
+    apply_prompt_cache_key(&mut body, anthropic);
+
     // 注意：ChatGPT 后端不支持 max_output_tokens，跳过该参数
 
     // temperature, top_p
@@ -194,22 +207,24 @@ pub fn anthropic_to_responses(
 
     // Tools
     if let Some(tools) = anthropic.get("tools").and_then(|t| t.as_array()) {
-        let resp_tools: Vec<Value> = tools
-            .iter()
-            .map(|tool| {
-                let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-                let truncated = truncate_tool_name(name);
-                if truncated != name {
-                    tool_name_map.insert(truncated.clone(), name.to_string());
-                }
-                json!({
+        let mut resp_tools: Vec<Value> = Vec::new();
+        for tool in tools {
+            reject_unsupported_server_tool(tool)?;
+            let name = tool
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("unknown");
+            let truncated = truncate_tool_name(name);
+            if truncated != name {
+                tool_name_map.insert(truncated.clone(), name.to_string());
+            }
+            resp_tools.push(json!({
                     "type": "function",
                     "name": truncated,
                     "description": tool.get("description").cloned().unwrap_or(json!("")),
                     "parameters": tool.get("input_schema").cloned().unwrap_or(json!({"type": "object"})),
-                })
-            })
-            .collect();
+                }));
+        }
         body["tools"] = json!(resp_tools);
     }
 
@@ -230,6 +245,90 @@ pub fn anthropic_to_responses(
     }
 
     Ok((body, tool_name_map))
+}
+
+fn apply_reasoning(body: &mut Value, anthropic: &Value) {
+    let effort = anthropic
+        .pointer("/output_config/effort")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            anthropic
+                .pointer("/thinking/effort")
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            let thinking_enabled =
+                anthropic.pointer("/thinking/type").and_then(|v| v.as_str()) == Some("enabled");
+            thinking_enabled.then_some("medium")
+        });
+
+    if let Some(effort) = effort {
+        body["reasoning"] = json!({"effort": effort});
+    }
+}
+
+fn apply_text_format(body: &mut Value, anthropic: &Value) -> Result<()> {
+    if let Some(format) = anthropic.pointer("/output_config/format") {
+        validate_text_format(format)?;
+        body["text"] = json!({"format": format.clone()});
+    }
+    Ok(())
+}
+
+fn validate_text_format(format: &Value) -> Result<()> {
+    let format_type = format.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    match format_type {
+        "text" | "json_object" => Ok(()),
+        "json_schema" => {
+            if !format.get("schema").is_some_and(|v| v.is_object()) {
+                bail!("json_schema format requires schema object");
+            }
+            Ok(())
+        }
+        _ => bail!("unsupported text format type '{format_type}'"),
+    }
+}
+
+fn apply_prompt_cache_key(body: &mut Value, anthropic: &Value) {
+    let key = anthropic
+        .pointer("/metadata/session_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            anthropic
+                .pointer("/metadata/conversation_id")
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| anthropic.get("container").and_then(|v| v.as_str()));
+
+    if let Some(key) = key {
+        if !key.is_empty() {
+            body["prompt_cache_key"] = json!(key);
+        }
+    }
+}
+
+fn reject_unsupported_server_tool(tool: &Value) -> Result<()> {
+    let tool_type = tool.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let is_server_tool = matches!(
+        tool_type,
+        "web_search_20250305"
+            | "web_fetch_20250910"
+            | "code_execution_20250522"
+            | "bash_20250124"
+            | "text_editor_20250124"
+            | "mcp_connector_20250910"
+    ) || matches!(
+        name,
+        "web_search" | "web_fetch" | "code_execution" | "bash" | "text_editor" | "mcp"
+    );
+
+    if is_server_tool {
+        bail!("unsupported Anthropic server tool '{name}' of type '{tool_type}'");
+    }
+
+    Ok(())
 }
 
 /// Convert OpenAI Responses API response → Anthropic Messages API response
@@ -315,10 +414,16 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
 
     // usage
     let usage = resp.get("usage").cloned().unwrap_or(json!({}));
-    let anthropic_usage = json!({
+    let mut anthropic_usage = json!({
         "input_tokens": usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
         "output_tokens": usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
     });
+    if let Some(cached) = usage
+        .pointer("/input_tokens_details/cached_tokens")
+        .and_then(|v| v.as_u64())
+    {
+        anthropic_usage["cache_read_input_tokens"] = json!(cached);
+    }
 
     let model = resp
         .get("model")
@@ -360,6 +465,53 @@ fn convert_image_block(block: &Value) -> Option<Value> {
     }))
 }
 
+fn convert_document_block(block: &Value) -> Result<Option<Value>> {
+    let Some(source) = block.get("source") else {
+        return Ok(None);
+    };
+    match source.get("type").and_then(|t| t.as_str()) {
+        Some("file") => {
+            let Some(file_id) = source.get("file_id").and_then(|v| v.as_str()) else {
+                return Ok(None);
+            };
+            if file_id.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(json!({"type": "input_file", "file_id": file_id})))
+        }
+        Some("base64") => {
+            if let Some(media_type) = source.get("media_type").and_then(|v| v.as_str()) {
+                if !is_supported_document_media_type(media_type) {
+                    bail!("unsupported document media type '{media_type}'");
+                }
+            }
+            let Some(data) = source.get("data").and_then(|v| v.as_str()) else {
+                return Ok(None);
+            };
+            if data.is_empty() {
+                return Ok(None);
+            }
+            let filename = block
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("document.pdf");
+            Ok(Some(json!({
+                "type": "input_file",
+                "filename": filename,
+                "file_data": data,
+            })))
+        }
+        Some(other) => bail!("unsupported document source type '{other}'"),
+        None => Ok(None),
+    }
+}
+
+fn is_supported_document_media_type(media_type: &str) -> bool {
+    media_type == "application/pdf"
+        || media_type == "application/json"
+        || media_type.starts_with("text/")
+}
+
 fn extract_tool_result_images(block: &Value) -> Vec<Value> {
     block
         .get("content")
@@ -374,29 +526,44 @@ fn extract_tool_result_images(block: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-fn convert_user_content(content: Option<&Value>) -> Vec<Value> {
+fn content_has_image(content: &Value) -> bool {
     match content {
-        Some(Value::String(s)) => vec![json!({"type": "input_text", "text": s})],
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|p| {
+        Value::Array(parts) => parts.iter().any(|part| {
+            part.get("type").and_then(|t| t.as_str()) == Some("image")
+                || part.get("content").is_some_and(content_has_image)
+        }),
+        _ => false,
+    }
+}
+
+fn convert_user_content(content: Option<&Value>) -> Result<Vec<Value>> {
+    match content {
+        Some(Value::String(s)) => Ok(vec![json!({"type": "input_text", "text": s})]),
+        Some(Value::Array(parts)) => {
+            let mut converted = Vec::new();
+            for p in parts {
                 let block_type = p.get("type").and_then(|t| t.as_str());
-                match block_type {
+                let item = match block_type {
                     Some("text") => {
                         let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
                         Some(json!({"type": "input_text", "text": text}))
                     }
                     Some("image") => convert_image_block(p),
+                    Some("document") => convert_document_block(p)?,
                     Some("tool_result") => {
-                        // tool_result at user level → function_call_output
-                        // This shouldn't normally appear here but handle it
+                        // tool_result at user level -> function_call_output.
+                        // This should not normally appear here but handle it.
                         None
                     }
                     _ => None,
+                };
+                if let Some(item) = item {
+                    converted.push(item);
                 }
-            })
-            .collect(),
-        _ => vec![],
+            }
+            Ok(converted)
+        }
+        _ => Ok(vec![]),
     }
 }
 
@@ -651,5 +818,126 @@ mod tests {
         });
         let (body, _) = anthropic_to_responses(&anthropic, "gpt-4o").unwrap();
         assert_eq!(body["instructions"], "Part 1.\nPart 2.");
+    }
+
+    #[test]
+    fn test_document_file_block_maps_to_input_file() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Read this PDF."},
+                    {"type": "document", "source": {"type": "file", "file_id": "file_abc"}}
+                ]
+            }]
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        let content = body["input"][0]["content"].as_array().unwrap();
+        assert_eq!(content[1]["type"], "input_file");
+        assert_eq!(content[1]["file_id"], "file_abc");
+    }
+
+    #[test]
+    fn test_unsafe_document_format_errors() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/octet-stream",
+                            "data": "AAE="
+                        }
+                    }
+                ]
+            }]
+        });
+
+        let err = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap_err();
+        assert!(err.to_string().contains("unsupported document media type"));
+    }
+
+    #[test]
+    fn test_reasoning_structured_output_and_prompt_cache_mapping() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Return JSON"}],
+            "thinking": {"type": "enabled", "budget_tokens": 4096},
+            "output_config": {
+                "effort": "high",
+                "format": {
+                    "type": "json_schema",
+                    "name": "result",
+                    "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+                }
+            },
+            "metadata": {"session_id": "claude-session-1"}
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["format"]["name"], "result");
+        assert_eq!(body["prompt_cache_key"], "claude-session-1");
+    }
+
+    #[test]
+    fn test_invalid_structured_output_schema_errors() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Return JSON"}],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "result"
+                }
+            }
+        });
+
+        let err = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("json_schema format requires schema"));
+    }
+
+    #[test]
+    fn test_server_tool_without_opt_in_errors() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Search web"}],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}]
+        });
+
+        let err = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("unsupported Anthropic server tool"));
+    }
+
+    #[test]
+    fn test_usage_cache_details_are_mapped() {
+        let resp = json!({
+            "id": "resp_123",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output_text": "ok",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "input_tokens_details": {"cached_tokens": 40},
+                "output_tokens_details": {"reasoning_tokens": 7}
+            }
+        });
+
+        let result = responses_to_anthropic(&resp, &HashMap::new()).unwrap();
+        assert_eq!(result["usage"]["input_tokens"], 100);
+        assert_eq!(result["usage"]["output_tokens"], 20);
+        assert_eq!(result["usage"]["cache_read_input_tokens"], 40);
+        assert!(result["usage"].get("reasoning_tokens").is_none());
     }
 }
