@@ -47,9 +47,10 @@ issues or is intentionally unsupported.
 - ✅ `/v1/models` exposes Claude model slots without duplicates.
 - ✅ Claude Code `WebFetch` works when model slots avoid unsupported mini models.
 - ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
+- ⚠️ Claude Code visible `Web Search` can run as a client-side tool, but
+  hosted Anthropic `web_search_20250305` is not implemented proxy-side.
 - ❌ `gpt-5.5-mini` is rejected by this ChatGPT/Codex account.
 - ❌ Raw Anthropic requests without `system`/instructions are rejected by Codex.
-- ❌ Claude Code `WebSearch` currently hits unsupported Anthropic server tools.
 - ❌ Codex hidden reasoning output is not displayed as Claude thinking.
 - ❌ Anthropic-hosted server tools are not implemented proxy-side.
 - ❌ Already-running proxies keep their old binary after symlink changes.
