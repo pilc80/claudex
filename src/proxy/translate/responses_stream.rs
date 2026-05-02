@@ -30,10 +30,11 @@ where
 
                     // Process complete SSE events (separated by double newline or single newline)
                     while let Some(pos) = buffer.find('\n') {
-                        let line = buffer[..pos].to_string();
+                        let line = buffer[..pos].trim_end_matches('\r').to_string();
                         buffer = buffer[pos + 1..].to_string();
 
                         if line.is_empty() {
+                            state.finish_sse_event();
                             continue;
                         }
 
@@ -57,8 +58,31 @@ where
             }
         }
 
+        if !buffer.is_empty() {
+            let line = buffer.trim_end_matches('\r');
+            for event in state.process_line(line) {
+                if event.starts_with("event: error") {
+                    yield Ok(Bytes::from(event));
+                    return;
+                }
+                if !message_started {
+                    yield Ok(Bytes::from(message_start_event()));
+                    message_started = true;
+                }
+                yield Ok(Bytes::from(event));
+            }
+        }
+
         if !message_started {
-            yield Ok(Bytes::from(message_start_event()));
+            tracing::warn!(
+                saw_upstream_data = state.saw_upstream_data,
+                last_event_type = ?state.last_event_type,
+                "Responses stream ended without translatable content"
+            );
+            yield Ok(Bytes::from(format_error_event(
+                "upstream Responses stream ended without translatable content"
+            )));
+            return;
         }
 
         // Finalize: close any open block and send message_delta + message_stop
@@ -121,6 +145,9 @@ struct ResponsesStreamState {
     stop_reason: String,
     output_tokens: u64,
     saw_text_delta: bool,
+    saw_upstream_data: bool,
+    pending_event_type: Option<String>,
+    last_event_type: Option<String>,
 }
 
 impl ResponsesStreamState {
@@ -133,6 +160,9 @@ impl ResponsesStreamState {
             stop_reason: "end_turn".to_string(),
             output_tokens: 0,
             saw_text_delta: false,
+            saw_upstream_data: false,
+            pending_event_type: None,
+            last_event_type: None,
         }
     }
 
@@ -140,7 +170,12 @@ impl ResponsesStreamState {
         // Responses API SSE format: "event: <type>\ndata: <json>" or just "data: <json>"
         // We may receive "event:" and "data:" lines separately
         if line.starts_with("event:") {
-            // Event type line — we'll get the data in the next line
+            self.pending_event_type = line
+                .strip_prefix("event:")
+                .map(str::trim)
+                .filter(|event_type| !event_type.is_empty())
+                .map(ToOwned::to_owned);
+            self.last_event_type = self.pending_event_type.clone();
             return vec![];
         }
 
@@ -151,13 +186,33 @@ impl ResponsesStreamState {
         } else {
             return vec![];
         };
+        self.saw_upstream_data = true;
+        let fallback_event_type = self.pending_event_type.take();
+
+        if data == "[DONE]" {
+            return vec![];
+        }
 
         let json: Value = match serde_json::from_str(data) {
             Ok(v) => v,
-            Err(_) => return vec![],
+            Err(err) => {
+                tracing::warn!(
+                    last_event_type = ?self.last_event_type,
+                    error = %err,
+                    "ignoring malformed Responses stream data line"
+                );
+                return vec![];
+            }
         };
 
-        let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        let event_type = json
+            .get("type")
+            .and_then(|t| t.as_str())
+            .or(fallback_event_type.as_deref())
+            .unwrap_or("");
+        if !event_type.is_empty() {
+            self.last_event_type = Some(event_type.to_string());
+        }
         match event_type {
             "response.output_text.delta" => {
                 let delta = json.get("delta").and_then(|d| d.as_str()).unwrap_or("");
@@ -357,6 +412,10 @@ impl ResponsesStreamState {
         }
     }
 
+    fn finish_sse_event(&mut self) {
+        self.pending_event_type = None;
+    }
+
     fn emit_text_block(&mut self, text: &str) -> Vec<String> {
         let events = vec![
             format_sse(
@@ -499,5 +558,52 @@ mod tests {
         assert!(text.contains("event: error"));
         assert!(!text.contains("message_start"));
         assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_event_line_supplies_type_when_data_omits_type() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "event: response.output_text.delta\ndata: {\"delta\":\"Hello\"}\n\n",
+        ))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("event: message_start"));
+        assert!(output.contains("event: content_block_delta"));
+        assert!(output.contains("Hello"));
+        assert!(!output.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn test_untranslatable_stream_returns_error_before_message_start() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from("event: ping\ndata: {}\n\n"))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let first = stream.next().await.unwrap().unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+        assert!(text.contains("event: error"));
+        assert!(text.contains("ended without translatable content"));
+        assert!(!text.contains("message_start"));
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_final_data_line_without_newline_is_processed() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "event: response.output_text.delta\ndata: {\"delta\":\"tail\"}",
+        ))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("tail"));
+        assert!(!output.contains("event: error"));
     }
 }
