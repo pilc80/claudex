@@ -29,28 +29,28 @@ Claude Code
 
 ## Feature Status
 
-Legend: `[green +]` works well, `[yellow ?]` not fully confirmed,
-`[red -]` has known issues or is intentionally unsupported.
+Legend: `✅` works well, `⚠️` is not fully confirmed, and `❌` has known
+issues or is intentionally unsupported.
 
-- [green +] Anthropic Messages -> OpenAI Responses request conversion.
-- [green +] Responses -> Anthropic response and SSE stream conversion.
-- [green +] `/compact` with streamed and non-streamed Responses shapes.
-- [green +] Current-turn images, including optional `image_model` routing.
-- [green +] Old base64 image-history pruning to avoid oversized requests.
-- [green +] Tool calls/results, including current tool-result images.
-- [green +] Reasoning effort request mapping.
-- [green +] Structured output request mapping.
-- [green +] Document/file block mapping where Responses can represent it.
-- [green +] Prompt cache key and cached-token usage mapping.
-- [green +] Upstream `429` retry with capped `Retry-After` delay.
-- [green +] Responses stream hardening for failure/rate-limit events.
-- [green +] `/v1/models` exposes Claude model slots without duplicates.
-- [yellow ?] Web/search/fetch depends on Claude Code tools and upstream support.
-- [yellow ?] `gpt-5.5-mini` and other aliases depend on account allowlists.
-- [yellow ?] Non-OpenAIResponses providers are kept close to upstream paths.
-- [red -] Codex hidden reasoning output is not displayed as Claude thinking.
-- [red -] Anthropic-hosted server tools are not implemented proxy-side.
-- [red -] Already-running proxies keep their old binary after symlink changes.
+- ✅ Anthropic Messages -> OpenAI Responses request conversion.
+- ✅ Responses -> Anthropic response and SSE stream conversion.
+- ✅ `/compact` with streamed and non-streamed Responses shapes.
+- ✅ Current-turn images, including optional `image_model` routing.
+- ✅ Old base64 image-history pruning to avoid oversized requests.
+- ✅ Tool calls/results, including current tool-result images.
+- ✅ Reasoning effort request mapping.
+- ✅ Structured output request mapping.
+- ✅ Document/file block mapping where Responses can represent it.
+- ✅ Prompt cache key and cached-token usage mapping.
+- ✅ Upstream `429` retry with capped `Retry-After` delay.
+- ✅ Responses stream hardening for failure/rate-limit events.
+- ✅ `/v1/models` exposes Claude model slots without duplicates.
+- ⚠️ Web/search/fetch depends on Claude Code tools and upstream support.
+- ⚠️ `gpt-5.5-mini` and other aliases depend on account allowlists.
+- ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
+- ❌ Codex hidden reasoning output is not displayed as Claude thinking.
+- ❌ Anthropic-hosted server tools are not implemented proxy-side.
+- ❌ Already-running proxies keep their old binary after symlink changes.
 
 If a model alias returns `400 model is not supported`, map that Claude slot to a
 model accepted by your ChatGPT/Codex account.
