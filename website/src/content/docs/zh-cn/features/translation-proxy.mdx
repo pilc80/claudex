@@ -138,16 +138,16 @@ Claude Code 查询此端点以发现可用模型。
 
 ```bash
 # 以守护进程方式启动代理
-claudex proxy start -d
+claudex-config proxy start -d
 
 # 查看代理状态
-claudex proxy status
+claudex-config proxy status
 
 # 停止代理守护进程
-claudex proxy stop
+claudex-config proxy stop
 
 # 使用自定义端口
-claudex proxy start -p 8080
+claudex-config proxy start -p 8080
 ```
 
-运行 `claudex run <profile>` 时，如果代理未运行，会自动在后台启动。
+运行 `CLAUDEX_PROFILE=<profile> claudex` 时，如果代理未运行，会自动在后台启动。

@@ -22,31 +22,31 @@ Obslugiwane sa oba formaty TOML i YAML. Format pliku jest wykrywany po rozszerze
 
 ```bash
 # Pokaz zaladowana sciezke konfiguracji i wszystkie lokalizacje wyszukiwania
-claudex config show
+claudex-config config show
 
 # Pokaz tylko sciezke pliku konfiguracyjnego
-claudex config path
+claudex-config config path
 
 # Utworz nowa konfiguracje w biezacym katalogu
-claudex config init
+claudex-config config init
 
 # Odtworz konfiguracje z config.example.toml
-claudex config recreate
+claudex-config config recreate
 
 # Otworz konfiguracje w edytorze $EDITOR
-claudex config edit
+claudex-config config edit
 
 # Zwaliduj skladnie konfiguracji i referencje profili
-claudex config validate
+claudex-config config validate
 
 # Pobierz konkretna wartosc konfiguracji
-claudex config get proxy_port
+claudex-config config get proxy_port
 
 # Ustaw konkretna wartosc konfiguracji
-claudex config set proxy_port 8080
+claudex-config config set proxy_port 8080
 
 # Eksportuj biezaca konfiguracje na stdout
-claudex config export
+claudex-config config export
 ```
 
 <Aside type="tip">
@@ -163,7 +163,7 @@ Kompatybilni dostawcy: **subskrypcje ChatGPT/Codex** (przez Codex CLI)
 Najprostszym sposobem dodania profilu jest interaktywny kreator:
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 Prowadzi przez wybor dostawcy, wprowadzenie klucza API (z opcjonalnym zapisem w lancuchu kluczy), wybor modelu i testowanie lacznosci.
@@ -203,13 +203,13 @@ oauth_provider = "openai"
 2. Zaloguj sie poleceniem `auth`:
 
 ```bash
-claudex auth login openai
+claudex-config auth login openai
 ```
 
 3. Sprawdz status uwierzytelnienia:
 
 ```bash
-claudex auth status
+claudex-config auth status
 ```
 
 ### Obslugiwani dostawcy
@@ -233,7 +233,7 @@ Podczas uzywania profili OAuth Claudex ustawia `ANTHROPIC_AUTH_TOKEN` (nie `ANTH
 Proxy automatycznie odswierza tokeny OAuth przed ich wygasnieciem. Mozesz tez recznie odswiezyc:
 
 ```bash
-claudex auth refresh openai
+claudex-config auth refresh openai
 ```
 
 ## Parametry zapytania
@@ -282,10 +282,10 @@ Claudex obsluguje jednorazowe (nieinteraktywne) wykonanie do uzycia w potokach C
 
 ```bash
 # Wydrukuj odpowiedz i wyjdz
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # Pomin wszystkie monity o uprawnienia (dla w pelni zautomatyzowanych potokow)
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 ```
 
 <Aside type="caution">
@@ -308,8 +308,8 @@ hyperlinks = "auto"
 Instaluj pakiety regul, umiejetnosci i serwerow MCP do wielokrotnego uzytku. Szczegoly w [Zestawy konfiguracji](/pl/features/configuration-sets/).
 
 ```bash
-claudex sets add ./my-set
-claudex sets list
+claudex-config sets add ./my-set
+claudex-config sets list
 ```
 
 ## Pelny przyklad

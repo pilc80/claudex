@@ -135,7 +135,7 @@ Si `[profiles.models]` no esta especificado, los tres slots usan el `default_mod
 Puedes sobreescribir slots sin modificar la configuracion estableciendo variables de entorno directamente:
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Las variables de entorno tienen precedencia sobre la configuracion del perfil.

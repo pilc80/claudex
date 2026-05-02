@@ -22,31 +22,31 @@ Both TOML and YAML formats are supported. The file format is detected by extensi
 
 ```bash
 # Show loaded config path and all search locations
-claudex config show
+claudex-config config show
 
 # Show just the config file path
-claudex config path
+claudex-config config path
 
 # Create a new config in the current directory
-claudex config init
+claudex-config config init
 
 # Recreate config from config.example.toml
-claudex config recreate
+claudex-config config recreate
 
 # Open config in your $EDITOR
-claudex config edit
+claudex-config config edit
 
 # Validate config syntax and profile references
-claudex config validate
+claudex-config config validate
 
 # Get a specific config value
-claudex config get proxy_port
+claudex-config config get proxy_port
 
 # Set a specific config value
-claudex config set proxy_port 8080
+claudex-config config set proxy_port 8080
 
 # Export current config to stdout
-claudex config export
+claudex-config config export
 ```
 
 <Aside type="tip">
@@ -163,7 +163,7 @@ Compatible providers: **ChatGPT/Codex subscriptions** (via Codex CLI)
 The easiest way to add a profile is the interactive wizard:
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 It guides you through provider selection, API key entry (with optional keyring storage), model selection, and connectivity testing.
@@ -203,13 +203,13 @@ oauth_provider = "openai"
 2. Log in with the `auth` command:
 
 ```bash
-claudex auth login openai
+claudex-config auth login openai
 ```
 
 3. Check your auth status:
 
 ```bash
-claudex auth status
+claudex-config auth status
 ```
 
 ### Supported Providers
@@ -233,7 +233,7 @@ When using OAuth profiles, Claudex sets `ANTHROPIC_AUTH_TOKEN` (not `ANTHROPIC_A
 The proxy automatically refreshes OAuth tokens before they expire. You can also manually refresh with:
 
 ```bash
-claudex auth refresh openai
+claudex-config auth refresh openai
 ```
 
 ## Query Parameters
@@ -282,10 +282,10 @@ Claudex supports one-shot (non-interactive) execution for use in CI/CD pipelines
 
 ```bash
 # Print response and exit
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # Skip all permission prompts (for fully automated pipelines)
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 ```
 
 <Aside type="caution">
@@ -308,8 +308,8 @@ hyperlinks = "auto"
 Install reusable bundles of rules, skills, and MCP servers. See [Configuration Sets](/en/features/configuration-sets/) for details.
 
 ```bash
-claudex sets add ./my-set
-claudex sets list
+claudex-config sets add ./my-set
+claudex-config sets list
 ```
 
 ## Full Example

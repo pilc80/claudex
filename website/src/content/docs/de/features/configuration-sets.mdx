@@ -138,7 +138,7 @@ Variablen, die als `${VAR_NAME}` in MCP-Server-Konfigurationen referenziert werd
 ### Set installieren
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 Dies validiert das Manifest, prueft auf Konflikte mit vorhandenen Sets und installiert alle Komponenten.
@@ -146,7 +146,7 @@ Dies validiert das Manifest, prueft auf Konflikte mit vorhandenen Sets und insta
 ### Installierte Sets auflisten
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Zeigt alle installierten Sets mit Version, Beschreibung und Komponentenanzahl an.
@@ -154,7 +154,7 @@ Zeigt alle installierten Sets mit Version, Beschreibung und Komponentenanzahl an
 ### Set-Details anzeigen
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Zeigt detaillierte Informationen ueber ein installiertes Set an, einschliesslich aller Regeln, Skills und MCP-Server.
@@ -162,7 +162,7 @@ Zeigt detaillierte Informationen ueber ein installiertes Set an, einschliesslich
 ### Set aktualisieren
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 Aktualisiert ein vorhandenes Set auf eine neue Version. Entfernt alte Komponenten und installiert neue.
@@ -170,7 +170,7 @@ Aktualisiert ein vorhandenes Set auf eine neue Version. Entfernt alte Komponente
 ### Set entfernen
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Entfernt ein installiertes Set und alle seine Komponenten.

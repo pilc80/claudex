@@ -134,7 +134,7 @@ profiles:
     priority: 70
 
   # ─── OAuth Subscription Profiles ────────────────────
-  # Login first: claudex auth login <provider> --profile <name>
+  # Login first: claudex-config auth login <provider> --profile <name>
 
   # Claude Max (via Claude Code's own OAuth)
   - name: claude-max
@@ -186,7 +186,7 @@ profiles:
     enabled: false
 
   # GitLab Duo (via GITLAB_TOKEN env)
-  # Login: claudex auth login gitlab --profile gitlab-duo
+  # Login: claudex-config auth login gitlab --profile gitlab-duo
   # Requires: export GITLAB_TOKEN=glpat-...
   - name: gitlab-duo
     provider_type: OpenAICompatible

@@ -91,7 +91,7 @@ auth_type = "oauth"
 oauth_provider = "claude"
 ```
 
-별도의 `claudex auth login` 단계가 필요 없습니다. Claude Code에 이미 로그인되어 있다면 즉시 작동합니다.
+별도의 `claudex-config auth login` 단계가 필요 없습니다. Claude Code에 이미 로그인되어 있다면 즉시 작동합니다.
 
 ### ChatGPT / Codex
 
@@ -104,17 +104,17 @@ Claudex는 폴백으로 `~/.codex/auth.json`의 Codex CLI 토큰도 읽습니다
 
 ```bash
 # 브라우저 플로우 (기본)
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # Device code 플로우 (헤드리스)
-claudex auth login openai --profile codex-sub --headless
+claudex-config auth login openai --profile codex-sub --headless
 ```
 
 ### GitHub Copilot
 
 GitHub Device Code 플로우를 사용합니다:
 
-1. `claudex auth login github`이 디바이스 코드를 표시
+1. `claudex-config auth login github`이 디바이스 코드를 표시
 2. `https://github.com/login/device`에서 코드 입력
 3. 토큰이 시스템 키링에 저장
 
@@ -126,25 +126,25 @@ GitHub Device Code 플로우를 사용합니다:
 
 ```bash
 export GITLAB_TOKEN=glpat-...
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 ```
 
 자체 호스팅 GitLab 인스턴스의 경우:
 
 ```bash
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
 ```
 
 ### Google Gemini
 
-Gemini CLI 설정에서 자격 증명을 읽습니다. Gemini CLI를 먼저 설치하고 인증한 후, `claudex auth login google`이 저장된 토큰을 읽습니다.
+Gemini CLI 설정에서 자격 증명을 읽습니다. Gemini CLI를 먼저 설치하고 인증한 후, `claudex-config auth login google`이 저장된 토큰을 읽습니다.
 
 ### Qwen
 
 OAuth Device Code 플로우를 사용합니다. Claudex가 인증을 위한 코드와 URL을 표시합니다:
 
 ```bash
-claudex auth login qwen --profile qwen-oauth
+claudex-config auth login qwen --profile qwen-oauth
 # 표시: Go to https://... and enter code: XXXX-XXXX
 ```
 
@@ -166,19 +166,19 @@ ANTHROPIC_AUTH_TOKEN=claudex-passthrough
 
 ```bash
 # 프로바이더에 로그인
-claudex auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
+claudex-config auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
 
 # 모든 OAuth 프로파일의 인증 상태 확인
-claudex auth status
+claudex-config auth status
 
 # 특정 프로바이더 확인
-claudex auth status openai
+claudex-config auth status openai
 
 # 토큰 수동 갱신
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 
 # 저장된 토큰 제거
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 ## 프로바이더 기본값

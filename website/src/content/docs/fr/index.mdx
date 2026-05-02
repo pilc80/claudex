@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Utilisez vos abonnements existants Claude, ChatGPT, Google, Qwen, Kimi, GitHub Copilot ou GitLab Duo. Supporte le PKCE navigateur, le flux Device Code, et la chaine de credentials depuis les CLI natifs.
   </Card>
   <Card title="Jeux de configuration" icon="setting">
-    Installez et gerez des ensembles reutilisables de regles CLAUDE.md, de skills et de serveurs MCP via `claudex sets add`. Manifestes versiones avec detection de conflits.
+    Installez et gerez des ensembles reutilisables de regles CLAUDE.md, de skills et de serveurs MCP via `claudex-config sets add`. Manifestes versiones avec detection de conflits.
   </Card>
   <Card title="Hyperliens terminaux" icon="external">
     Hyperliens cliquables OSC 8 dans la sortie du terminal. Detection automatique du support terminal (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) avec mode proxy PTY.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Associez le selecteur `/model` de Claude Code (haiku, sonnet, opus) a n'importe quel modele fournisseur via `[profiles.models]`. Configuration de modele par profil avec surcharge par variables d'environnement.
   </Card>
   <Card title="Mode non interactif" icon="rocket">
-    Execution ponctuelle avec `claudex run <profile> "prompt" --print`. Ideal pour les pipelines CI/CD et l'automatisation scriptee.
+    Execution ponctuelle avec `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Ideal pour les pipelines CI/CD et l'automatisation scriptee.
   </Card>
   <Card title="Compatibilite des noms d'outils" icon="list-format">
     Troncature automatique des noms d'outils depassant 64 caracteres pour la compatibilite OpenAI, avec restauration transparente aller-retour sur les reponses.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Fonctionnement
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

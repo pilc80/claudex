@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 你也可以透過 CLI 旗標在每次工作階段中啟用超連結：
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## 終端偵測
@@ -42,7 +42,7 @@ claudex run grok --hyperlinks
 
 | 優先順序 | 檢查項目 | 結果 |
 |---------|---------|------|
-| 1 | `FORCE_HYPERLINKS=1` 環境變數 | 啟用 |
+| 1 | `CLAUDEX_HYPERLINKS=on` 環境變數 | 啟用 |
 | 2 | 非 TTY | 停用 |
 | 3 | `DOMTERM` 環境變數已設定 | 啟用 |
 | 4 | `TERM_PROGRAM` = iTerm.app | 啟用 |
@@ -86,7 +86,7 @@ claudex run grok --hyperlinks
 PTY 代理對使用者透明。它只在互動式工作階段中啟用（使用 `--print` 的非互動模式會跳過 PTY）。
 
 <Aside type="tip">
-  若你遇到終端渲染問題，可以在設定中設定 `hyperlinks = false` 或省略 `--hyperlinks` 旗標來停用超連結。
+  若你遇到終端渲染問題，可以在設定中設定 `hyperlinks = false` 或省略 `CLAUDEX_HYPERLINKS=on` 旗標來停用超連結。
 </Aside>
 
 ## 強制啟用/停用
@@ -95,13 +95,13 @@ PTY 代理對使用者透明。它只在互動式工作階段中啟用（使用 
 
 ```bash
 # 透過環境變數
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # 透過設定
 hyperlinks = true
 
 # 透過 CLI 旗標
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 強制停用（例如管道輸出時）：

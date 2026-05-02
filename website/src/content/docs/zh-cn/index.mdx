@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     使用现有的 Claude、ChatGPT、Google、Qwen、Kimi、GitHub Copilot 或 GitLab Duo 订阅。支持浏览器 PKCE、设备码流程，以及从原生 CLI 读取凭证链。
   </Card>
   <Card title="配置集" icon="setting">
-    通过 `claudex sets add` 安装和管理可复用的 CLAUDE.md 规则、技能和 MCP 服务器包。支持版本化清单与冲突检测。
+    通过 `claudex-config sets add` 安装和管理可复用的 CLAUDE.md 规则、技能和 MCP 服务器包。支持版本化清单与冲突检测。
   </Card>
   <Card title="终端超链接" icon="external">
     终端输出中的 OSC 8 可点击超链接。自动检测终端支持（iTerm、WezTerm、Kitty、Ghostty、VS Code、Windows Terminal），支持 PTY 代理模式。
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     通过 `[profiles.models]` 将 Claude Code 的 `/model` 切换器（haiku、sonnet、opus）映射到任意提供商模型。支持按 profile 配置模型，可用环境变量覆盖。
   </Card>
   <Card title="非交互模式" icon="rocket">
-    通过 `claudex run <profile> "prompt" --print` 实现一次性执行。适用于 CI/CD 流水线和脚本自动化。
+    通过 `CLAUDEX_PROFILE=<profile> claudex "prompt" --print` 实现一次性执行。适用于 CI/CD 流水线和脚本自动化。
   </Card>
   <Card title="工具名称兼容" icon="list-format">
     自动截断超过 64 字符的工具名称以兼容 OpenAI，响应中透明恢复原始名称。
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## 工作原理
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

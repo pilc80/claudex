@@ -138,16 +138,16 @@ Claude Code запрашивает этот endpoint для обнаружени
 
 ```bash
 # Запустить прокси как демон
-claudex proxy start -d
+claudex-config proxy start -d
 
 # Проверить статус прокси
-claudex proxy status
+claudex-config proxy status
 
 # Остановить демон прокси
-claudex proxy stop
+claudex-config proxy stop
 
 # Запустить на пользовательском порту
-claudex proxy start -p 8080
+claudex-config proxy start -p 8080
 ```
 
-При выполнении `claudex run <profile>` прокси автоматически запускается в фоне, если он ещё не запущен.
+При выполнении `CLAUDEX_PROFILE=<profile> claudex` прокси автоматически запускается в фоне, если он ещё не запущен.

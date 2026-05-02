@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Use assinaturas existentes do Claude, ChatGPT, Google, Qwen, Kimi, GitHub Copilot ou GitLab Duo. Suporta PKCE via navegador, device code flow e cadeia de credenciais de CLIs nativos.
   </Card>
   <Card title="Conjuntos de Configuracao" icon="setting">
-    Instale e gerencie pacotes reutilizaveis de regras CLAUDE.md, skills e servidores MCP via `claudex sets add`. Manifestos versionados com deteccao de conflitos.
+    Instale e gerencie pacotes reutilizaveis de regras CLAUDE.md, skills e servidores MCP via `claudex-config sets add`. Manifestos versionados com deteccao de conflitos.
   </Card>
   <Card title="Hyperlinks no Terminal" icon="external">
     Hyperlinks clicaveis OSC 8 na saida do terminal. Detecta automaticamente suporte do terminal (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) com modo PTY proxy.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Mapeie o seletor `/model` do Claude Code (haiku, sonnet, opus) para qualquer modelo de provedor via `[profiles.models]`. Configuracao de modelo por profile com overrides por variavel de ambiente.
   </Card>
   <Card title="Modo Nao-Interativo" icon="rocket">
-    Execucao one-shot com `claudex run <profile> "prompt" --print`. Ideal para pipelines CI/CD e automacao via scripts.
+    Execucao one-shot com `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Ideal para pipelines CI/CD e automacao via scripts.
   </Card>
   <Card title="Compatibilidade de Nomes de Ferramentas" icon="list-format">
     Truncamento automatico de nomes de ferramentas com mais de 64 caracteres para compatibilidade com OpenAI, com restauracao transparente de ida e volta nas respostas.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Como Funciona
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Inicia proxy → 127.0.0.1:13456
     │

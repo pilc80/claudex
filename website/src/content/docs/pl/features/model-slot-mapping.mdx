@@ -135,7 +135,7 @@ Jesli `[profiles.models]` nie jest zdefiniowane, wszystkie trzy sloty uzywaja `d
 Mozesz nadpisac sloty bez modyfikowania konfiguracji, ustawiajac zmienne srodowiskowe bezposrednio:
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Zmienne srodowiskowe maja pierwszenstwo przed konfiguracja profilu.

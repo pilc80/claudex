@@ -168,7 +168,7 @@ fn build_resume_hint(profile_name: &str, session_id: &str, extra_args: &[String]
         format!(" {}", args_clean.join(" "))
     };
 
-    format!("claudex run {profile_name} --resume {session_id}{args_str}")
+    format!("CLAUDEX_PROFILE={profile_name} claudex --resume {session_id}{args_str}")
 }
 
 /// Decide whether to use PTY mode based on config + CLI flag.
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn test_build_resume_hint_no_extra_args() {
         let hint = build_resume_hint("codex-sub", "abc-123", &[]);
-        assert_eq!(hint, "claudex run codex-sub --resume abc-123");
+        assert_eq!(hint, "CLAUDEX_PROFILE=codex-sub claudex --resume abc-123");
     }
 
     #[test]
@@ -204,7 +204,7 @@ mod tests {
         let hint = build_resume_hint("codex-sub", "abc-123", &args);
         assert_eq!(
             hint,
-            "claudex run codex-sub --resume abc-123 --dangerously-skip-permissions --verbose"
+            "CLAUDEX_PROFILE=codex-sub claudex --resume abc-123 --dangerously-skip-permissions --verbose"
         );
     }
 
@@ -218,7 +218,7 @@ mod tests {
         let hint = build_resume_hint("codex-sub", "new-session-id", &args);
         assert_eq!(
             hint,
-            "claudex run codex-sub --resume new-session-id --dangerously-skip-permissions"
+            "CLAUDEX_PROFILE=codex-sub claudex --resume new-session-id --dangerously-skip-permissions"
         );
     }
 
@@ -230,13 +230,16 @@ mod tests {
             "old-id".to_string(),
         ];
         let hint = build_resume_hint("my-profile", "new-id", &args);
-        assert_eq!(hint, "claudex run my-profile --resume new-id --verbose");
+        assert_eq!(
+            hint,
+            "CLAUDEX_PROFILE=my-profile claudex --resume new-id --verbose"
+        );
     }
 
     #[test]
     fn test_build_resume_hint_resume_only() {
         let args = vec!["--resume".to_string(), "old-id".to_string()];
         let hint = build_resume_hint("p", "new-id", &args);
-        assert_eq!(hint, "claudex run p --resume new-id");
+        assert_eq!(hint, "CLAUDEX_PROFILE=p claudex --resume new-id");
     }
 }

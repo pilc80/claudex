@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Vorhandene Claude-, ChatGPT-, Google-, Qwen-, Kimi-, GitHub Copilot- oder GitLab Duo-Abonnements verwenden. Unterstuetzt Browser-PKCE, Device-Code-Flow und Credential Chain aus nativen CLIs.
   </Card>
   <Card title="Konfigurationssets" icon="setting">
-    Wiederverwendbare Pakete aus CLAUDE.md-Regeln, Skills und MCP-Servern installieren und verwalten mit `claudex sets add`. Versionierte Manifeste mit Konflikterkennung.
+    Wiederverwendbare Pakete aus CLAUDE.md-Regeln, Skills und MCP-Servern installieren und verwalten mit `claudex-config sets add`. Versionierte Manifeste mit Konflikterkennung.
   </Card>
   <Card title="Terminal-Hyperlinks" icon="external">
     OSC-8-klickbare Hyperlinks in der Terminalausgabe. Automatische Erkennung der Terminalunterstuetzung (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) mit PTY-Proxy-Modus.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Den `/model`-Umschalter von Claude Code (haiku, sonnet, opus) ueber `[profiles.models]` auf beliebige Anbietermodelle abbilden. Profilspezifische Modellkonfiguration mit Umgebungsvariablen-Ueberschreibung.
   </Card>
   <Card title="Nicht-interaktiver Modus" icon="rocket">
-    Einmalige Ausfuehrung mit `claudex run <profile> "prompt" --print`. Ideal fuer CI/CD-Pipelines und geskriptete Automatisierung.
+    Einmalige Ausfuehrung mit `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Ideal fuer CI/CD-Pipelines und geskriptete Automatisierung.
   </Card>
   <Card title="Werkzeugname-Kompatibilitaet" icon="list-format">
     Kuerzt Werkzeugnamen automatisch, die laenger als 64 Zeichen sind, fuer OpenAI-Kompatibilitaet, mit transparenter Rundreise-Wiederherstellung bei Antworten.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Funktionsweise
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

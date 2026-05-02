@@ -739,7 +739,7 @@ pub async fn ensure_valid_token(profile: &mut ProfileConfig) -> Result<()> {
 
     let cred = super::source::load_credential_chain(&provider).with_context(|| {
         format!(
-            "OAuth token not available for '{}'. Run `claudex auth login {} --profile {}`",
+            "OAuth token not available for '{}'. Run `claudex-config auth login {} --profile {}`",
             profile.name,
             provider.display_name().to_lowercase(),
             profile.name
@@ -762,7 +762,7 @@ pub async fn ensure_valid_token(profile: &mut ProfileConfig) -> Result<()> {
             }
         }
         anyhow::bail!(
-            "OAuth token expired for '{}' and cannot auto-refresh. Run `claudex auth refresh {}`",
+            "OAuth token expired for '{}' and cannot auto-refresh. Run `claudex-config auth refresh {}`",
             profile.name,
             profile.name
         );

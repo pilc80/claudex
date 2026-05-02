@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 Вы также можете включить гиперссылки для конкретной сессии через флаг CLI:
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## Определение терминала
@@ -42,7 +42,7 @@ claudex run grok --hyperlinks
 
 | Приоритет | Проверка | Результат |
 |-----------|---------|-----------|
-| 1 | Переменная окружения `FORCE_HYPERLINKS=1` | Включить |
+| 1 | Переменная окружения `CLAUDEX_HYPERLINKS=on` | Включить |
 | 2 | Не TTY | Отключить |
 | 3 | Переменная окружения `DOMTERM` установлена | Включить |
 | 4 | `TERM_PROGRAM` = iTerm.app | Включить |
@@ -86,7 +86,7 @@ claudex run grok --hyperlinks
 PTY-прокси прозрачен для пользователя. Он активируется только для интерактивных сессий (неинтерактивный режим с `--print` пропускает PTY).
 
 <Aside type="tip">
-  Если вы столкнулись с проблемами отрисовки терминала, вы можете отключить гиперссылки через `hyperlinks = false` в конфигурации или не указывая флаг `--hyperlinks`.
+  Если вы столкнулись с проблемами отрисовки терминала, вы можете отключить гиперссылки через `hyperlinks = false` в конфигурации или не указывая флаг `CLAUDEX_HYPERLINKS=on`.
 </Aside>
 
 ## Принудительное включение/отключение
@@ -95,13 +95,13 @@ PTY-прокси прозрачен для пользователя. Он акт
 
 ```bash
 # Через переменную окружения
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Через конфигурацию
 hyperlinks = true
 
 # Через флаг CLI
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 Для принудительного отключения (например, при пайпинге вывода):

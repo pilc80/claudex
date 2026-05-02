@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 Mozesz rowniez wlaczyc hiperlinki per sesja za pomoca flagi CLI:
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## Wykrywanie terminala
@@ -42,7 +42,7 @@ Gdy `hyperlinks = "auto"`, Claudex sprawdza nastepujace w kolejnosci:
 
 | Priorytet | Sprawdzenie | Wynik |
 |-----------|-------------|-------|
-| 1 | Zmienna srodowiskowa `FORCE_HYPERLINKS=1` | Wlacz |
+| 1 | Zmienna srodowiskowa `CLAUDEX_HYPERLINKS=on` | Wlacz |
 | 2 | Nie jest TTY | Wylacz |
 | 3 | Zmienna srodowiskowa `DOMTERM` ustawiona | Wlacz |
 | 4 | `TERM_PROGRAM` = iTerm.app | Wlacz |
@@ -86,7 +86,7 @@ Gdy hiperlinki sa wlaczone w systemach Unix, Claudex uruchamia proces Claude Cod
 Proxy PTY jest transparentne dla uzytkownika. Jest aktywowane tylko dla sesji interaktywnych (tryb nieinteraktywny z `--print` pomija PTY).
 
 <Aside type="tip">
-  Jesli wystepuja problemy z renderowaniem terminala, mozesz wylaczyc hiperlinki ustawiajac `hyperlinks = false` w konfiguracji lub pomijajac flage `--hyperlinks`.
+  Jesli wystepuja problemy z renderowaniem terminala, mozesz wylaczyc hiperlinki ustawiajac `hyperlinks = false` w konfiguracji lub pomijajac flage `CLAUDEX_HYPERLINKS=on`.
 </Aside>
 
 ## Wymuszenie wlaczenia/wylaczenia
@@ -95,13 +95,13 @@ Dla terminali nieobecnych na liscie automatycznego wykrywania mozesz wymusic hip
 
 ```bash
 # Przez zmienna srodowiskowa
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Przez konfiguracje
 hyperlinks = true
 
 # Przez flage CLI
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 Aby wymusic wylaczenie (np. przy potokowym przekierowaniu wyjscia):

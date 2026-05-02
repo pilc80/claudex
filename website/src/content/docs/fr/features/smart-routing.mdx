@@ -5,11 +5,11 @@ description: Routage automatique des fournisseurs base sur l'intention
 
 import { Aside } from '@astrojs/starlight/components';
 
-Le routage intelligent selectionne automatiquement le meilleur fournisseur pour chaque requete en fonction de la classification de l'intention. Utilisez `claudex run auto` pour l'activer.
+Le routage intelligent selectionne automatiquement le meilleur fournisseur pour chaque requete en fonction de la classification de l'intention. Utilisez `CLAUDEX_PROFILE=auto claudex` pour l'activer.
 
 ## Fonctionnement
 
-1. L'utilisateur execute `claudex run auto`
+1. L'utilisateur execute `CLAUDEX_PROFILE=auto claudex`
 2. Claude Code envoie une requete au proxy
 3. Le proxy extrait le message de l'utilisateur et l'envoie a un classificateur local (par ex. Ollama)
 4. Le classificateur retourne une categorie d'intention (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # repli pour les intentions non classifiees
 
 ```bash
 # Executer avec le routage intelligent
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Remplacer le modele meme avec le routage automatique
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

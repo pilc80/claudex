@@ -135,7 +135,7 @@ Si `[profiles.models]` n'est pas specifie, les trois slots utilisent le `default
 Vous pouvez surcharger les slots sans modifier le config en definissant directement les variables d'environnement :
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Les variables d'environnement ont priorite sur la configuration du profil.

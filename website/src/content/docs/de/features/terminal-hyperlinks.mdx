@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 Sie koennen Hyperlinks auch pro Sitzung ueber das CLI-Flag aktivieren:
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## Terminal-Erkennung
@@ -42,7 +42,7 @@ Wenn `hyperlinks = "auto"`, prueft Claudex folgende Bedingungen in dieser Reihen
 
 | Prioritaet | Pruefung | Ergebnis |
 |------------|----------|----------|
-| 1 | `FORCE_HYPERLINKS=1`-Umgebungsvariable | Aktivieren |
+| 1 | `CLAUDEX_HYPERLINKS=on`-Umgebungsvariable | Aktivieren |
 | 2 | Kein TTY | Deaktivieren |
 | 3 | `DOMTERM`-Umgebungsvariable gesetzt | Aktivieren |
 | 4 | `TERM_PROGRAM` = iTerm.app | Aktivieren |
@@ -86,7 +86,7 @@ Wenn Hyperlinks auf Unix-Systemen aktiviert sind, startet Claudex den Claude Cod
 Der PTY-Proxy ist fuer den Benutzer transparent. Er wird nur fuer interaktive Sitzungen aktiviert (nicht-interaktiver Modus mit `--print` ueberspringt den PTY).
 
 <Aside type="tip">
-  Wenn Probleme mit der Terminal-Darstellung auftreten, koennen Sie Hyperlinks mit `hyperlinks = false` in Ihrer Konfiguration oder durch Weglassen des `--hyperlinks`-Flags deaktivieren.
+  Wenn Probleme mit der Terminal-Darstellung auftreten, koennen Sie Hyperlinks mit `hyperlinks = false` in Ihrer Konfiguration oder durch Weglassen des `CLAUDEX_HYPERLINKS=on`-Flags deaktivieren.
 </Aside>
 
 ## Erzwungenes Aktivieren/Deaktivieren
@@ -95,13 +95,13 @@ Fuer Terminals, die nicht in der Auto-Erkennungsliste enthalten sind, koennen Si
 
 ```bash
 # Ueber Umgebungsvariable
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Ueber Konfiguration
 hyperlinks = true
 
 # Ueber CLI-Flag
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 Zum erzwungenen Deaktivieren (z.B. beim Pipen der Ausgabe):

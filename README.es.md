@@ -44,7 +44,7 @@ Claudex es un proxy unificado que permite a [Claude Code](https://docs.anthropic
 - **Suscripciones OAuth** — ChatGPT/Codex, Claude Max, GitHub Copilot, GitLab Duo, Google Gemini, Qwen, Kimi
 - **Conjuntos de configuración** — Instala y gestiona conjuntos de configuración reutilizables de Claude Code desde repositorios git
 - **Panel TUI** — Estado de perfiles en tiempo real, métricas, registros y lanzamiento rápido
-- **Actualización automática** — `claudex update` descarga la última versión desde GitHub
+- **Actualización automática** — `claudex-config update` descarga la última versión desde GitHub
 
 ## Instalación
 
@@ -69,25 +69,25 @@ cargo install --git https://github.com/pilc80/claudex
 
 ```bash
 # 1. Inicializar la configuración
-claudex config init
+claudex-config config init
 
 # 2. Agregar un perfil de proveedor de forma interactiva
-claudex profile add
+claudex-config profile add
 
 # 3. Probar la conectividad
-claudex profile test all
+claudex-config profile test all
 
 # 4. Ejecutar Claude Code con un proveedor específico
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # 5. O usar el enrutamiento inteligente para seleccionar automáticamente el mejor proveedor
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 ```
 
 ## Cómo funciona
 
 ```
-claudex run openrouter-claude
+CLAUDEX_PROFILE=openrouter-claude claudex
     │
     ├── Iniciar proxy (si no está en ejecución) → 127.0.0.1:13456
     │
@@ -148,35 +148,35 @@ Admite los formatos TOML y YAML. Consulta [`config.example.toml`](./config.examp
 
 | Comando | Descripción |
 |---------|-------------|
-| `claudex run <profile>` | Ejecutar Claude Code con un proveedor específico |
-| `claudex run auto` | Enrutamiento inteligente — selección automática del mejor proveedor |
-| `claudex run <profile> -m <model>` | Sobreescribir el modelo para una sesión |
-| `claudex profile list` | Listar todos los perfiles configurados |
-| `claudex profile add` | Asistente interactivo de configuración de perfiles |
-| `claudex profile show <name>` | Mostrar detalles del perfil |
-| `claudex profile remove <name>` | Eliminar un perfil |
-| `claudex profile test <name\|all>` | Probar la conectividad del proveedor |
-| `claudex proxy start [-p port] [-d]` | Iniciar el proxy (opcionalmente como demonio) |
-| `claudex proxy stop` | Detener el demonio del proxy |
-| `claudex proxy status` | Mostrar el estado del proxy |
-| `claudex dashboard` | Lanzar el panel TUI |
-| `claudex config show [--raw] [--json]` | Mostrar la configuración cargada |
-| `claudex config init [--yaml]` | Crear configuración en el directorio actual |
-| `claudex config edit [--global]` | Abrir la configuración en $EDITOR |
-| `claudex config validate [--connectivity]` | Validar la configuración |
-| `claudex config get <key>` | Obtener un valor de configuración |
-| `claudex config set <key> <value>` | Establecer un valor de configuración |
-| `claudex config export --format <fmt>` | Exportar la configuración (json/toml/yaml) |
-| `claudex update [--check]` | Actualización automática desde GitHub Releases |
-| `claudex auth login <provider>` | Inicio de sesión OAuth |
-| `claudex auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
-| `claudex auth status` | Mostrar el estado del token OAuth |
-| `claudex auth logout <profile>` | Eliminar el token OAuth |
-| `claudex auth refresh <profile>` | Forzar la renovación del token OAuth |
-| `claudex sets add <source> [--global]` | Instalar un conjunto de configuración |
-| `claudex sets remove <name>` | Eliminar un conjunto de configuración |
-| `claudex sets list [--global]` | Listar los conjuntos instalados |
-| `claudex sets update [name]` | Actualizar los conjuntos a la última versión |
+| `CLAUDEX_PROFILE=<profile> claudex` | Ejecutar Claude Code con un proveedor específico |
+| `CLAUDEX_PROFILE=auto claudex` | Enrutamiento inteligente — selección automática del mejor proveedor |
+| `CLAUDEX_PROFILE=<profile> CLAUDEX_MODEL=<model> claudex` | Sobreescribir el modelo para una sesión |
+| `claudex-config profile list` | Listar todos los perfiles configurados |
+| `claudex-config profile add` | Asistente interactivo de configuración de perfiles |
+| `claudex-config profile show <name>` | Mostrar detalles del perfil |
+| `claudex-config profile remove <name>` | Eliminar un perfil |
+| `claudex-config profile test <name\|all>` | Probar la conectividad del proveedor |
+| `claudex-config proxy start [-p port] [-d]` | Iniciar el proxy (opcionalmente como demonio) |
+| `claudex-config proxy stop` | Detener el demonio del proxy |
+| `claudex-config proxy status` | Mostrar el estado del proxy |
+| `claudex-config dashboard` | Lanzar el panel TUI |
+| `claudex-config config show [--raw] [--json]` | Mostrar la configuración cargada |
+| `claudex-config config init [--yaml]` | Crear configuración en el directorio actual |
+| `claudex-config config edit [--global]` | Abrir la configuración en $EDITOR |
+| `claudex-config config validate [--connectivity]` | Validar la configuración |
+| `claudex-config config get <key>` | Obtener un valor de configuración |
+| `claudex-config config set <key> <value>` | Establecer un valor de configuración |
+| `claudex-config config export --format <fmt>` | Exportar la configuración (json/toml/yaml) |
+| `claudex-config update [--check]` | Actualización automática desde GitHub Releases |
+| `claudex-config auth login <provider>` | Inicio de sesión OAuth |
+| `claudex-config auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
+| `claudex-config auth status` | Mostrar el estado del token OAuth |
+| `claudex-config auth logout <profile>` | Eliminar el token OAuth |
+| `claudex-config auth refresh <profile>` | Forzar la renovación del token OAuth |
+| `claudex-config sets add <source> [--global]` | Instalar un conjunto de configuración |
+| `claudex-config sets remove <name>` | Eliminar un conjunto de configuración |
+| `claudex-config sets list [--global]` | Listar los conjuntos instalados |
+| `claudex-config sets update [name]` | Actualizar los conjuntos a la última versión |
 
 ## Suscripciones OAuth
 
@@ -184,28 +184,28 @@ Usa suscripciones existentes en lugar de claves de API:
 
 ```bash
 # Suscripción de ChatGPT (detecta automáticamente las credenciales del Codex CLI)
-claudex auth login chatgpt --profile codex-sub
+claudex-config auth login chatgpt --profile codex-sub
 
 # ChatGPT forzar inicio de sesión en el navegador
-claudex auth login chatgpt --profile codex-sub --force
+claudex-config auth login chatgpt --profile codex-sub --force
 
 # ChatGPT sin interfaz gráfica (SSH/sin navegador)
-claudex auth login chatgpt --profile codex-sub --force --headless
+claudex-config auth login chatgpt --profile codex-sub --force --headless
 
 # GitHub Copilot
-claudex auth login github --profile copilot
+claudex-config auth login github --profile copilot
 
 # GitHub Copilot Enterprise
-claudex auth login github --profile copilot-ent --enterprise-url company.ghe.com
+claudex-config auth login github --profile copilot-ent --enterprise-url company.ghe.com
 
 # GitLab Duo (lee la variable de entorno GITLAB_TOKEN)
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 
 # Comprobar estado
-claudex auth status
+claudex-config auth status
 
 # Ejecutar con suscripción
-claudex run codex-sub
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 Compatible con: `claude`, `chatgpt`/`openai`, `google`, `qwen`, `kimi`, `github`/`copilot`, `gitlab`
@@ -232,7 +232,10 @@ opus = "deepseek/deepseek-r1"
 
 ```
 src/
-├── main.rs
+├── lib.rs
+├── bin/
+│   ├── claudex.rs
+│   └── claudex-config.rs
 ├── cli.rs
 ├── update.rs
 ├── util.rs

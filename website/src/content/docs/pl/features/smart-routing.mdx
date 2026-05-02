@@ -5,11 +5,11 @@ description: Automatyczne trasowanie dostawcy oparte na intencjach
 
 import { Aside } from '@astrojs/starlight/components';
 
-Inteligentne trasowanie automatycznie wybiera najlepszego dostawce dla kazdego zadania na podstawie klasyfikacji intencji. Uzyj `claudex run auto`, aby je aktywowac.
+Inteligentne trasowanie automatycznie wybiera najlepszego dostawce dla kazdego zadania na podstawie klasyfikacji intencji. Uzyj `CLAUDEX_PROFILE=auto claudex`, aby je aktywowac.
 
 ## Jak to dziala
 
-1. Uzytkownik uruchamia `claudex run auto`
+1. Uzytkownik uruchamia `CLAUDEX_PROFILE=auto claudex`
 2. Claude Code wysyla zadanie do proxy
 3. Proxy wyodrebnia wiadomosc uzytkownika i wysyla ja do lokalnego klasyfikatora (np. Ollama)
 4. Klasyfikator zwraca kategorie intencji (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # zapasowy dla niesklasyfikowanych
 
 ```bash
 # Uruchom z inteligentnym trasowaniem
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Nadpisz model nawet przy automatycznym trasowaniu
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

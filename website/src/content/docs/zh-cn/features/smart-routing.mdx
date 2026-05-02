@@ -5,11 +5,11 @@ description: 基于意图的自动提供商路由
 
 import { Aside } from '@astrojs/starlight/components';
 
-智能路由根据意图分类自动为每个请求选择最佳提供商。使用 `claudex run auto` 激活。
+智能路由根据意图分类自动为每个请求选择最佳提供商。使用 `CLAUDEX_PROFILE=auto claudex` 激活。
 
 ## 工作原理
 
-1. 用户运行 `claudex run auto`
+1. 用户运行 `CLAUDEX_PROFILE=auto claudex`
 2. Claude Code 向代理发送请求
 3. 代理提取用户消息，发送给本地分类器（如 Ollama）
 4. 分类器返回意图类别（code、analysis、creative、search、math）
@@ -51,8 +51,8 @@ default = "grok"        # 未分类的默认路由
 
 ```bash
 # 使用智能路由
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # 即使使用自动路由也可以覆盖模型
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

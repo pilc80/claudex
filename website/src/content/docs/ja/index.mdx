@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     既存の Claude、ChatGPT、Google、Qwen、Kimi、GitHub Copilot、GitLab Duo のサブスクリプションをそのまま使用可能。ブラウザ PKCE、デバイスコードフロー、ネイティブ CLI からのクレデンシャルチェーンに対応。
   </Card>
   <Card title="コンフィギュレーションセット" icon="setting">
-    CLAUDE.md のルール、スキル、MCP サーバーの再利用可能なバンドルを `claudex sets add` でインストール・管理。バージョン管理されたマニフェストと競合検出機能付き。
+    CLAUDE.md のルール、スキル、MCP サーバーの再利用可能なバンドルを `claudex-config sets add` でインストール・管理。バージョン管理されたマニフェストと競合検出機能付き。
   </Card>
   <Card title="ターミナルハイパーリンク" icon="external">
     ターミナル出力に OSC 8 クリック可能なハイパーリンクを表示。ターミナルのサポートを自動検出（iTerm、WezTerm、Kitty、Ghostty、VS Code、Windows Terminal）。PTY プロキシモード対応。
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Claude Code の `/model` スイッチャー（haiku、sonnet、opus）を `[profiles.models]` で任意のプロバイダーモデルにマッピング。プロファイルごとのモデル設定と環境変数によるオーバーライドが可能。
   </Card>
   <Card title="非対話モード" icon="rocket">
-    `claudex run <profile> "prompt" --print` によるワンショット実行。CI/CD パイプラインやスクリプト自動化に最適。
+    `CLAUDEX_PROFILE=<profile> claudex "prompt" --print` によるワンショット実行。CI/CD パイプラインやスクリプト自動化に最適。
   </Card>
   <Card title="ツール名互換性" icon="list-format">
     64 文字を超えるツール名を OpenAI 互換性のために自動短縮し、レスポンス時に透過的に元の名前に復元します。
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## 動作の仕組み
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

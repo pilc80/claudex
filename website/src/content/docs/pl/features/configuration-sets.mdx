@@ -138,7 +138,7 @@ Zmienne odwolywane jako `${VAR_NAME}` w konfiguracjach serwerow MCP sa rozwiazyw
 ### Instalacja zestawu
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 Waliduje manifest, sprawdza konflikty z istniejacymi zestawami i instaluje wszystkie skladniki.
@@ -146,7 +146,7 @@ Waliduje manifest, sprawdza konflikty z istniejacymi zestawami i instaluje wszys
 ### Lista zainstalowanych zestawow
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Wyswietla wszystkie zainstalowane zestawy z ich wersja, opisem i liczba skladnikow.
@@ -154,7 +154,7 @@ Wyswietla wszystkie zainstalowane zestawy z ich wersja, opisem i liczba skladnik
 ### Szczegoly zestawu
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Pokazuje szczegolowe informacje o zainstalowanym zestawie, w tym wszystkie reguly, umiejetnosci i serwery MCP.
@@ -162,7 +162,7 @@ Pokazuje szczegolowe informacje o zainstalowanym zestawie, w tym wszystkie regul
 ### Aktualizacja zestawu
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 Aktualizuje istniejacy zestaw do nowej wersji. Usuwa stare skladniki i instaluje nowe.
@@ -170,7 +170,7 @@ Aktualizuje istniejacy zestaw do nowej wersji. Usuwa stare skladniki i instaluje
 ### Usuwanie zestawu
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Usuwa zainstalowany zestaw i wszystkie jego skladniki.

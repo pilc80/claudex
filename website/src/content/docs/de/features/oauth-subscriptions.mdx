@@ -91,7 +91,7 @@ auth_type = "oauth"
 oauth_provider = "claude"
 ```
 
-Kein `claudex auth login`-Schritt erforderlich. Wenn Sie bereits bei Claude Code angemeldet sind, funktioniert es sofort.
+Kein `claudex-config auth login`-Schritt erforderlich. Wenn Sie bereits bei Claude Code angemeldet sind, funktioniert es sofort.
 
 ### ChatGPT / Codex
 
@@ -104,17 +104,17 @@ Claudex liest auch Token aus der Codex CLI-Konfiguration unter `~/.codex/auth.js
 
 ```bash
 # Browser-Flow (Standard)
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # Device Code Flow (headless)
-claudex auth login openai --profile codex-sub --headless
+claudex-config auth login openai --profile codex-sub --headless
 ```
 
 ### GitHub Copilot
 
 Verwendet GitHubs Device Code Flow:
 
-1. `claudex auth login github` zeigt einen Device Code an
+1. `claudex-config auth login github` zeigt einen Device Code an
 2. `https://github.com/login/device` oeffnen und den Code eingeben
 3. Token wird im System-Schluesselbund gespeichert
 
@@ -126,25 +126,25 @@ Verwendet einen Personal Access Token ueber die `GITLAB_TOKEN`-Umgebungsvariable
 
 ```bash
 export GITLAB_TOKEN=glpat-...
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 ```
 
 Fuer selbst-gehostete GitLab-Instanzen:
 
 ```bash
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
 ```
 
 ### Google Gemini
 
-Liest Anmeldedaten aus der Gemini CLI-Konfiguration. Zuerst Gemini CLI installieren und authentifizieren, dann liest `claudex auth login google` das gespeicherte Token.
+Liest Anmeldedaten aus der Gemini CLI-Konfiguration. Zuerst Gemini CLI installieren und authentifizieren, dann liest `claudex-config auth login google` das gespeicherte Token.
 
 ### Qwen
 
 Verwendet den OAuth Device Code Flow. Claudex zeigt einen Code und eine URL zur Authentifizierung an:
 
 ```bash
-claudex auth login qwen --profile qwen-oauth
+claudex-config auth login qwen --profile qwen-oauth
 # Zeigt an: Go to https://... and enter code: XXXX-XXXX
 ```
 
@@ -166,19 +166,19 @@ Dies verwendet den `Authorization: Bearer`-Header anstelle von `X-Api-Key`, um K
 
 ```bash
 # Bei einem Anbieter anmelden
-claudex auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
+claudex-config auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
 
 # Auth-Status fuer alle OAuth-Profile pruefen
-claudex auth status
+claudex-config auth status
 
 # Einen bestimmten Anbieter pruefen
-claudex auth status openai
+claudex-config auth status openai
 
 # Token manuell aktualisieren
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 
 # Gespeicherte Token entfernen
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 ## Anbieter-Standardwerte

@@ -44,7 +44,7 @@ Claudex 是一個統一的代理層，讓 [Claude Code](https://docs.anthropic.c
 - **OAuth 訂閱** — ChatGPT/Codex、Claude Max、GitHub Copilot、GitLab Duo、Google Gemini、Qwen、Kimi
 - **設定集** — 從 git 倉庫安裝並管理可重用的 Claude Code 設定集
 - **TUI 儀表板** — 即時 profile 健康狀態、指標、日誌與快速啟動
-- **自動更新** — `claudex update` 從 GitHub 下載最新版本
+- **自動更新** — `claudex-config update` 從 GitHub 下載最新版本
 
 ## 安裝
 
@@ -69,25 +69,25 @@ cargo install --git https://github.com/pilc80/claudex
 
 ```bash
 # 1. 初始化設定
-claudex config init
+claudex-config config init
 
 # 2. 以互動方式新增提供商 profile
-claudex profile add
+claudex-config profile add
 
 # 3. 測試連線
-claudex profile test all
+claudex-config profile test all
 
 # 4. 以指定提供商執行 Claude Code
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # 5. 或使用智慧路由自動選擇最佳提供商
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 ```
 
 ## 運作原理
 
 ```
-claudex run openrouter-claude
+CLAUDEX_PROFILE=openrouter-claude claudex
     │
     ├── 啟動代理（若尚未執行）→ 127.0.0.1:13456
     │
@@ -148,35 +148,35 @@ Claudex 依下列順序搜尋設定檔：
 
 | 指令 | 說明 |
 |------|------|
-| `claudex run <profile>` | 以指定提供商執行 Claude Code |
-| `claudex run auto` | 智慧路由，自動選擇最佳提供商 |
-| `claudex run <profile> -m <model>` | 覆寫本次工作階段使用的模型 |
-| `claudex profile list` | 列出所有已設定的 profile |
-| `claudex profile add` | 互動式 profile 設定精靈 |
-| `claudex profile show <name>` | 顯示 profile 詳細資訊 |
-| `claudex profile remove <name>` | 移除 profile |
-| `claudex profile test <name\|all>` | 測試提供商連線 |
-| `claudex proxy start [-p port] [-d]` | 啟動代理（可選擇以常駐程式模式執行） |
-| `claudex proxy stop` | 停止代理常駐程式 |
-| `claudex proxy status` | 顯示代理狀態 |
-| `claudex dashboard` | 啟動 TUI 儀表板 |
-| `claudex config show [--raw] [--json]` | 顯示已載入的設定 |
-| `claudex config init [--yaml]` | 在當前目錄建立設定檔 |
-| `claudex config edit [--global]` | 以 $EDITOR 開啟設定檔 |
-| `claudex config validate [--connectivity]` | 驗證設定 |
-| `claudex config get <key>` | 取得設定值 |
-| `claudex config set <key> <value>` | 設定設定值 |
-| `claudex config export --format <fmt>` | 匯出設定（json/toml/yaml） |
-| `claudex update [--check]` | 從 GitHub Releases 自動更新 |
-| `claudex auth login <provider>` | OAuth 登入 |
-| `claudex auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
-| `claudex auth status` | 顯示 OAuth token 狀態 |
-| `claudex auth logout <profile>` | 移除 OAuth token |
-| `claudex auth refresh <profile>` | 強制刷新 OAuth token |
-| `claudex sets add <source> [--global]` | 安裝設定集 |
-| `claudex sets remove <name>` | 移除設定集 |
-| `claudex sets list [--global]` | 列出已安裝的設定集 |
-| `claudex sets update [name]` | 更新設定集至最新版本 |
+| `CLAUDEX_PROFILE=<profile> claudex` | 以指定提供商執行 Claude Code |
+| `CLAUDEX_PROFILE=auto claudex` | 智慧路由，自動選擇最佳提供商 |
+| `CLAUDEX_PROFILE=<profile> CLAUDEX_MODEL=<model> claudex` | 覆寫本次工作階段使用的模型 |
+| `claudex-config profile list` | 列出所有已設定的 profile |
+| `claudex-config profile add` | 互動式 profile 設定精靈 |
+| `claudex-config profile show <name>` | 顯示 profile 詳細資訊 |
+| `claudex-config profile remove <name>` | 移除 profile |
+| `claudex-config profile test <name\|all>` | 測試提供商連線 |
+| `claudex-config proxy start [-p port] [-d]` | 啟動代理（可選擇以常駐程式模式執行） |
+| `claudex-config proxy stop` | 停止代理常駐程式 |
+| `claudex-config proxy status` | 顯示代理狀態 |
+| `claudex-config dashboard` | 啟動 TUI 儀表板 |
+| `claudex-config config show [--raw] [--json]` | 顯示已載入的設定 |
+| `claudex-config config init [--yaml]` | 在當前目錄建立設定檔 |
+| `claudex-config config edit [--global]` | 以 $EDITOR 開啟設定檔 |
+| `claudex-config config validate [--connectivity]` | 驗證設定 |
+| `claudex-config config get <key>` | 取得設定值 |
+| `claudex-config config set <key> <value>` | 設定設定值 |
+| `claudex-config config export --format <fmt>` | 匯出設定（json/toml/yaml） |
+| `claudex-config update [--check]` | 從 GitHub Releases 自動更新 |
+| `claudex-config auth login <provider>` | OAuth 登入 |
+| `claudex-config auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
+| `claudex-config auth status` | 顯示 OAuth token 狀態 |
+| `claudex-config auth logout <profile>` | 移除 OAuth token |
+| `claudex-config auth refresh <profile>` | 強制刷新 OAuth token |
+| `claudex-config sets add <source> [--global]` | 安裝設定集 |
+| `claudex-config sets remove <name>` | 移除設定集 |
+| `claudex-config sets list [--global]` | 列出已安裝的設定集 |
+| `claudex-config sets update [name]` | 更新設定集至最新版本 |
 
 ## OAuth 訂閱
 
@@ -184,28 +184,28 @@ Claudex 依下列順序搜尋設定檔：
 
 ```bash
 # ChatGPT 訂閱（自動偵測現有 Codex CLI 憑證）
-claudex auth login chatgpt --profile codex-sub
+claudex-config auth login chatgpt --profile codex-sub
 
 # ChatGPT 強制瀏覽器登入
-claudex auth login chatgpt --profile codex-sub --force
+claudex-config auth login chatgpt --profile codex-sub --force
 
 # ChatGPT 無介面模式（SSH / 無瀏覽器環境）
-claudex auth login chatgpt --profile codex-sub --force --headless
+claudex-config auth login chatgpt --profile codex-sub --force --headless
 
 # GitHub Copilot
-claudex auth login github --profile copilot
+claudex-config auth login github --profile copilot
 
 # GitHub Copilot Enterprise
-claudex auth login github --profile copilot-ent --enterprise-url company.ghe.com
+claudex-config auth login github --profile copilot-ent --enterprise-url company.ghe.com
 
 # GitLab Duo（讀取 GITLAB_TOKEN 環境變數）
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 
 # 查看狀態
-claudex auth status
+claudex-config auth status
 
 # 以訂閱帳號執行
-claudex run codex-sub
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 支援的提供商：`claude`、`chatgpt`/`openai`、`google`、`qwen`、`kimi`、`github`/`copilot`、`gitlab`
@@ -232,7 +232,10 @@ opus = "deepseek/deepseek-r1"
 
 ```
 src/
-├── main.rs
+├── lib.rs
+├── bin/
+│   ├── claudex.rs
+│   └── claudex-config.rs
 ├── cli.rs
 ├── update.rs
 ├── util.rs

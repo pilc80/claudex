@@ -136,7 +136,7 @@ impl TokenManager {
         )
         .with_context(|| {
             format!(
-                "ChatGPT token not available for '{}'. Run `claudex auth login chatgpt --profile {}`",
+                "ChatGPT token not available for '{}'. Run `claudex-config auth login chatgpt --profile {}`",
                 profile.name, profile.name
             )
         })?;
@@ -154,7 +154,7 @@ impl TokenManager {
                     .await;
             }
             anyhow::bail!(
-                "ChatGPT token expired for '{}' and no refresh_token available. Run `claudex auth login chatgpt --profile {}`",
+                "ChatGPT token expired for '{}' and no refresh_token available. Run `claudex-config auth login chatgpt --profile {}`",
                 profile.name, profile.name
             );
         }
@@ -167,7 +167,7 @@ impl TokenManager {
         let cred =
             super::source::load_credential_chain(&OAuthProvider::Github).with_context(|| {
                 format!(
-                "GitHub token not available for '{}'. Run `claudex auth login github --profile {}`",
+                "GitHub token not available for '{}'. Run `claudex-config auth login github --profile {}`",
                 profile.name, profile.name
             )
             })?;
@@ -200,7 +200,7 @@ impl TokenManager {
     ) -> Result<OAuthToken> {
         let cred = super::source::load_credential_chain(provider).with_context(|| {
             format!(
-                "OAuth token not available for '{}'. Run `claudex auth login {} --profile {}`",
+                "OAuth token not available for '{}'. Run `claudex-config auth login {} --profile {}`",
                 profile.name,
                 provider.display_name().to_lowercase(),
                 profile.name

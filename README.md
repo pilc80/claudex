@@ -112,9 +112,34 @@ git clone git@github.com:pilc80/claudex.git
 cd claudex
 cargo build --release
 ln -sfn "$PWD/target/release/claudex" "$HOME/.local/bin/claudex"
+ln -sfn "$PWD/target/release/claudex-config" "$HOME/.local/bin/claudex-config"
 ```
 
 Make sure `$HOME/.local/bin` is in `PATH`.
+
+## Command Split
+
+This fork intentionally separates the Claude-compatible launcher from setup:
+
+```text
+claudex
+  Claude-compatible launcher. It passes all arguments to Claude Code unchanged.
+
+claudex-config
+  Claudex setup and management: auth, proxy, config/profile, update, sets,
+  and dashboard commands.
+```
+
+Normal launch options come from environment variables:
+
+```bash
+CLAUDEX_PROFILE=codex-sub claudex --resume <session-id>
+CLAUDEX_PROFILE=codex-sub CLAUDEX_MODEL=gpt-5.5 claudex
+CLAUDEX_PROFILE=codex-sub CLAUDEX_HYPERLINKS=on claudex
+```
+
+`CLAUDEX_PROFILE` defaults to `codex-sub` when that profile exists, otherwise
+to the first enabled profile. `CLAUDEX_CONFIG` can point at a custom config file.
 
 ## ChatGPT/Codex Setup
 
@@ -145,14 +170,14 @@ Keep `haiku = "gpt-5.5"` unless your account accepts `gpt-5.5-mini`.
 Login and run:
 
 ```bash
-claudex auth login chatgpt --profile codex-sub
-claudex run codex-sub
+claudex-config auth login chatgpt --profile codex-sub
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 Headless login:
 
 ```bash
-claudex auth login chatgpt --profile codex-sub --force --headless
+claudex-config auth login chatgpt --profile codex-sub --force --headless
 ```
 
 If Claude Code selects a haiku/sonnet/opus slot, claudex sends the mapped model
@@ -165,6 +190,7 @@ Build and point the local command at the exact release binary:
 ```bash
 cargo build --release
 ln -sfn "$PWD/target/release/claudex" "$HOME/.local/bin/claudex"
+ln -sfn "$PWD/target/release/claudex-config" "$HOME/.local/bin/claudex-config"
 ```
 
 Verify:
@@ -172,18 +198,20 @@ Verify:
 ```bash
 which claudex
 readlink "$HOME/.local/bin/claudex"
-shasum -a 256 "$HOME/.local/bin/claudex" target/release/claudex
+readlink "$HOME/.local/bin/claudex-config"
+claudex-config --version
+shasum -a 256 target/release/claudex target/release/claudex-config
 ```
 
 Restart the proxy after deploying a new binary:
 
 ```bash
-claudex proxy stop
-claudex run codex-sub
+claudex-config proxy stop
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 Changing the symlink does not update already-running processes. If an old proxy
-is alive, `claudex run` may reuse it instead of starting the new binary.
+is alive, `claudex` may reuse it instead of starting the new binary.
 
 ## Release Integrity
 
@@ -196,6 +224,8 @@ claudex-<version>-x86_64-pc-windows-msvc.zip
 claudex-<version>-x86_64-pc-windows-msvc.zip.sha256
 claudex-release-manifest.json
 ```
+
+Archives contain both `claudex` and `claudex-config`.
 
 The release workflow also emits GitHub artifact attestations for release
 archives and the manifest. Use GitHub CLI attestation verification for provenance

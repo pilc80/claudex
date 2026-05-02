@@ -138,16 +138,16 @@ Claude Code odpytuje ten endpoint w celu odkrycia dostepnych modeli.
 
 ```bash
 # Uruchom proxy jako demon
-claudex proxy start -d
+claudex-config proxy start -d
 
 # Sprawdz status proxy
-claudex proxy status
+claudex-config proxy status
 
 # Zatrzymaj demona proxy
-claudex proxy stop
+claudex-config proxy stop
 
 # Uruchom na niestandardowym porcie
-claudex proxy start -p 8080
+claudex-config proxy start -p 8080
 ```
 
-Po uruchomieniu `claudex run <profile>` proxy jest automatycznie uruchamiane w tle, jesli jeszcze nie dziala.
+Po uruchomieniu `CLAUDEX_PROFILE=<profile> claudex` proxy jest automatycznie uruchamiane w tle, jesli jeszcze nie dziala.

@@ -2,12 +2,21 @@
 name = "claudex"
 version = "0.9.0"
 edition = "2021"
+autobins = false
 description = "Multi-instance Claude Code manager with intelligent translation proxy"
 license = "MIT"
 repository = "https://github.com/pilc80/claudex"
 homepage = "https://claudex.space"
 keywords = ["claude", "proxy", "llm", "ai", "translation"]
 categories = ["command-line-utilities", "web-programming"]
+
+[[bin]]
+name = "claudex"
+path = "src/bin/claudex.rs"
+
+[[bin]]
+name = "claudex-config"
+path = "src/bin/claudex-config.rs"
 
 [dependencies]
 # CLI

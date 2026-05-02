@@ -22,31 +22,31 @@ Sono supportati sia il formato TOML che YAML. Il formato viene rilevato dall'est
 
 ```bash
 # Mostra il percorso del config caricato e tutte le posizioni di ricerca
-claudex config show
+claudex-config config show
 
 # Mostra solo il percorso del file di configurazione
-claudex config path
+claudex-config config path
 
 # Crea un nuovo config nella directory corrente
-claudex config init
+claudex-config config init
 
 # Ricrea il config da config.example.toml
-claudex config recreate
+claudex-config config recreate
 
 # Apri il config nel tuo $EDITOR
-claudex config edit
+claudex-config config edit
 
 # Valida la sintassi del config e i riferimenti ai profili
-claudex config validate
+claudex-config config validate
 
 # Ottieni un valore specifico del config
-claudex config get proxy_port
+claudex-config config get proxy_port
 
 # Imposta un valore specifico del config
-claudex config set proxy_port 8080
+claudex-config config set proxy_port 8080
 
 # Esporta il config corrente su stdout
-claudex config export
+claudex-config config export
 ```
 
 <Aside type="tip">
@@ -163,7 +163,7 @@ Fornitori compatibili: **abbonamenti ChatGPT/Codex** (tramite Codex CLI)
 Il modo piu semplice per aggiungere un profilo e la procedura guidata interattiva:
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 Ti guida attraverso la selezione del fornitore, l'inserimento della chiave API (con archiviazione opzionale nel portachiavi), la selezione del modello e il test di connettivita.
@@ -203,13 +203,13 @@ oauth_provider = "openai"
 2. Effettua il login con il comando `auth`:
 
 ```bash
-claudex auth login openai
+claudex-config auth login openai
 ```
 
 3. Verifica lo stato dell'autenticazione:
 
 ```bash
-claudex auth status
+claudex-config auth status
 ```
 
 ### Fornitori supportati
@@ -233,7 +233,7 @@ Quando si utilizzano profili OAuth, Claudex imposta `ANTHROPIC_AUTH_TOKEN` (non 
 Il proxy aggiorna automaticamente i token OAuth prima della scadenza. Puoi anche aggiornare manualmente con:
 
 ```bash
-claudex auth refresh openai
+claudex-config auth refresh openai
 ```
 
 ## Parametri query
@@ -282,10 +282,10 @@ Claudex supporta l'esecuzione one-shot (non interattiva) per l'uso in pipeline C
 
 ```bash
 # Stampa la risposta ed esci
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # Salta tutti i prompt di autorizzazione (per pipeline completamente automatizzate)
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 ```
 
 <Aside type="caution">
@@ -308,8 +308,8 @@ hyperlinks = "auto"
 Installa pacchetti riutilizzabili di regole, skill e server MCP. Consulta [Set di configurazione](/it/features/configuration-sets/) per i dettagli.
 
 ```bash
-claudex sets add ./my-set
-claudex sets list
+claudex-config sets add ./my-set
+claudex-config sets list
 ```
 
 ## Esempio completo

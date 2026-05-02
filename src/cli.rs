@@ -4,9 +4,9 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "claudex",
+    name = "claudex-config",
     version,
-    about = "Multi-instance Claude Code manager with intelligent translation proxy"
+    about = "Configure and manage the Claudex Claude Code translation proxy"
 )]
 pub struct Cli {
     /// Override config file path

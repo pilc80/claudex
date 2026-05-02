@@ -135,7 +135,7 @@ Se `[profiles.models]` non e specificato, tutti e tre gli slot utilizzano il `de
 Puoi sovrascrivere gli slot senza modificare il config impostando direttamente le variabili d'ambiente:
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Le variabili d'ambiente hanno la precedenza sulla configurazione del profilo.

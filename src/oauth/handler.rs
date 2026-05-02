@@ -227,7 +227,7 @@ impl OAuthProviderHandler for DeviceCodeHandler {
         Box::pin(async move {
             // Qwen device code login requires interactive I/O
             anyhow::bail!(
-                "use `claudex auth login {}` for interactive device code flow",
+                "use `claudex-config auth login {}` for interactive device code flow",
                 provider.display_name().to_lowercase()
             )
         })

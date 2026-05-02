@@ -7,6 +7,7 @@ REPO="${CLAUDEX_REPO:-pilc80/claudex}"
 INSTALL_DIR="${CLAUDEX_INSTALL_DIR:-$HOME/.local/bin}"
 PROFILE_NAME="${CLAUDEX_PROFILE:-codex-sub}"
 INSTALLED_BIN=""
+INSTALLED_CONFIG_BIN=""
 ASSUME_YES="${CLAUDEX_ASSUME_YES:-}"
 SKIP_SETUP="${CLAUDEX_SKIP_SETUP:-}"
 DRY_RUN="${CLAUDEX_DRY_RUN:-}"
@@ -283,18 +284,25 @@ backup_existing() {
 install_binary() {
     src="$1"
     dest="$INSTALL_DIR/claudex"
+    config_dest="$INSTALL_DIR/claudex-config"
 
     mkdir -p "$INSTALL_DIR"
     if is_yes "$DRY_RUN"; then
         say "Dry run: would install $src to $dest"
+        say "Dry run: would install claudex-config to $config_dest"
         INSTALLED_BIN="$dest"
+        INSTALLED_CONFIG_BIN="$config_dest"
         return 0
     fi
     backup_existing "$dest"
+    backup_existing "$config_dest"
     rm -f "$dest"
     mv "$src" "$dest"
     chmod +x "$dest"
+    rm -f "$config_dest"
+    ln -s "claudex" "$config_dest"
     INSTALLED_BIN="$dest"
+    INSTALLED_CONFIG_BIN="$config_dest"
 }
 
 install_from_release() {
@@ -323,7 +331,9 @@ install_from_release() {
         if is_yes "$DRY_RUN"; then
             say "Dry run: release manifest was not available; would query GitHub Releases API as fallback"
             say "Dry run: would download, verify, unpack, and install to $INSTALL_DIR/claudex"
+            say "Dry run: would install claudex-config to $INSTALL_DIR/claudex-config"
             INSTALLED_BIN="$INSTALL_DIR/claudex"
+            INSTALLED_CONFIG_BIN="$INSTALL_DIR/claudex-config"
             return 0
         fi
         version="$(get_latest_version)"
@@ -346,7 +356,9 @@ install_from_release() {
 
     if is_yes "$DRY_RUN"; then
         say "Dry run: would download, verify, unpack, and install to $INSTALL_DIR/claudex"
+        say "Dry run: would install claudex-config to $INSTALL_DIR/claudex-config"
         INSTALLED_BIN="$INSTALL_DIR/claudex"
+        INSTALLED_CONFIG_BIN="$INSTALL_DIR/claudex-config"
         return 0
     fi
 
@@ -372,10 +384,12 @@ install_from_source() {
     if is_yes "$DRY_RUN"; then
         say "Dry run: would run cargo install --git https://github.com/$REPO --force"
         INSTALLED_BIN="$HOME/.cargo/bin/claudex"
+        INSTALLED_CONFIG_BIN="$HOME/.cargo/bin/claudex-config"
         return 0
     fi
     cargo install --git "https://github.com/$REPO" --force
     INSTALLED_BIN="$HOME/.cargo/bin/claudex"
+    INSTALLED_CONFIG_BIN="$HOME/.cargo/bin/claudex-config"
 }
 
 ensure_path_notice() {
@@ -395,12 +409,20 @@ maybe_stop_proxy() {
         return
     fi
 
-    status="$("$INSTALLED_BIN" proxy status 2>/dev/null || true)"
+    if [ -n "$INSTALLED_CONFIG_BIN" ] && [ -x "$INSTALLED_CONFIG_BIN" ]; then
+        status="$("$INSTALLED_CONFIG_BIN" proxy status 2>/dev/null || true)"
+    else
+        status="$("$INSTALLED_BIN" proxy status 2>/dev/null || true)"
+    fi
     case "$status" in
         "Proxy is running"*)
             say "$status"
             if prompt_yes_no "Stop the running claudex proxy so the new binary is used?" n; then
-                "$INSTALLED_BIN" proxy stop || true
+                if [ -n "$INSTALLED_CONFIG_BIN" ] && [ -x "$INSTALLED_CONFIG_BIN" ]; then
+                    "$INSTALLED_CONFIG_BIN" proxy stop || true
+                else
+                    "$INSTALLED_BIN" proxy stop || true
+                fi
             else
                 say "Leaving proxy running. Restart it later to load the new binary."
             fi
@@ -412,7 +434,7 @@ maybe_setup_chatgpt() {
     if is_yes "$SKIP_SETUP" || is_yes "$DRY_RUN"; then
         return
     fi
-    if [ -z "$INSTALLED_BIN" ] || [ ! -x "$INSTALLED_BIN" ]; then
+    if [ -z "$INSTALLED_CONFIG_BIN" ] || [ ! -x "$INSTALLED_CONFIG_BIN" ]; then
         return
     fi
     if ! prompt_yes_no "Set up a ChatGPT/Codex OAuth profile now?" n; then
@@ -436,11 +458,11 @@ maybe_setup_chatgpt() {
     fi
 
     # shellcheck disable=SC2086
-    "$INSTALLED_BIN" auth login chatgpt --profile "$PROFILE_NAME" $args
+    "$INSTALLED_CONFIG_BIN" auth login chatgpt --profile "$PROFILE_NAME" $args
 
     say ""
     say "Run Claude Code through this profile with:"
-    say "  claudex run $PROFILE_NAME"
+    say "  CLAUDEX_PROFILE=$PROFILE_NAME claudex"
 }
 
 main() {
@@ -474,7 +496,8 @@ main() {
     fi
 
     say "Installed claudex to $INSTALLED_BIN"
-    "$INSTALLED_BIN" --version 2>/dev/null || true
+    say "Installed claudex-config to $INSTALLED_CONFIG_BIN"
+    "$INSTALLED_CONFIG_BIN" --version 2>/dev/null || true
     ensure_path_notice
     maybe_stop_proxy
     maybe_setup_chatgpt

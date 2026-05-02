@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 Puoi anche abilitare gli hyperlink per sessione tramite il flag CLI:
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## Rilevamento del terminale
@@ -42,7 +42,7 @@ Quando `hyperlinks = "auto"`, Claudex verifica i seguenti elementi in ordine:
 
 | Priorita | Controllo | Risultato |
 |----------|-----------|-----------|
-| 1 | Variabile d'ambiente `FORCE_HYPERLINKS=1` | Abilita |
+| 1 | Variabile d'ambiente `CLAUDEX_HYPERLINKS=on` | Abilita |
 | 2 | Non e un TTY | Disabilita |
 | 3 | Variabile d'ambiente `DOMTERM` impostata | Abilita |
 | 4 | `TERM_PROGRAM` = iTerm.app | Abilita |
@@ -86,7 +86,7 @@ Quando gli hyperlink sono abilitati su sistemi Unix, Claudex avvia il processo C
 Il proxy PTY e trasparente per l'utente. Viene attivato solo per le sessioni interattive (la modalita non interattiva con `--print` salta il PTY).
 
 <Aside type="tip">
-  Se riscontri problemi con il rendering del terminale, puoi disabilitare gli hyperlink con `hyperlinks = false` nel config o omettendo il flag `--hyperlinks`.
+  Se riscontri problemi con il rendering del terminale, puoi disabilitare gli hyperlink con `hyperlinks = false` nel config o omettendo il flag `CLAUDEX_HYPERLINKS=on`.
 </Aside>
 
 ## Forzare abilitazione/disabilitazione
@@ -95,13 +95,13 @@ Per i terminali non presenti nell'elenco di rilevamento automatico, puoi forzare
 
 ```bash
 # Tramite variabile d'ambiente
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Tramite config
 hyperlinks = true
 
 # Tramite flag CLI
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 Per forzare la disabilitazione (ad es. quando si esegue il pipe dell'output):

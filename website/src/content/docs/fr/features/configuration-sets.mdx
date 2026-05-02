@@ -138,7 +138,7 @@ Les variables referencees en `${VAR_NAME}` dans les configs de serveurs MCP sont
 ### Installer un jeu
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 Valide le manifeste, verifie les conflits avec les jeux existants, et installe tous les composants.
@@ -146,7 +146,7 @@ Valide le manifeste, verifie les conflits avec les jeux existants, et installe t
 ### Lister les jeux installes
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Affiche tous les jeux installes avec leur version, description et nombre de composants.
@@ -154,7 +154,7 @@ Affiche tous les jeux installes avec leur version, description et nombre de comp
 ### Afficher les details d'un jeu
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Affiche les informations detaillees sur un jeu installe, incluant toutes les regles, skills et serveurs MCP.
@@ -162,7 +162,7 @@ Affiche les informations detaillees sur un jeu installe, incluant toutes les reg
 ### Mettre a jour un jeu
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 Met a jour un jeu existant vers une nouvelle version. Supprime les anciens composants et installe les nouveaux.
@@ -170,7 +170,7 @@ Met a jour un jeu existant vers une nouvelle version. Supprime les anciens compo
 ### Supprimer un jeu
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Supprime un jeu installe et tous ses composants.

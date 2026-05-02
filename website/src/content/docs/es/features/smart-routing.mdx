@@ -5,11 +5,11 @@ description: Enrutamiento automatico de proveedores basado en intencion
 
 import { Aside } from '@astrojs/starlight/components';
 
-El enrutamiento inteligente selecciona automaticamente el mejor proveedor para cada solicitud basandose en la clasificacion de la intencion. Usa `claudex run auto` para activarlo.
+El enrutamiento inteligente selecciona automaticamente el mejor proveedor para cada solicitud basandose en la clasificacion de la intencion. Usa `CLAUDEX_PROFILE=auto claudex` para activarlo.
 
 ## Como funciona
 
-1. El usuario ejecuta `claudex run auto`
+1. El usuario ejecuta `CLAUDEX_PROFILE=auto claudex`
 2. Claude Code envia una solicitud al proxy
 3. El proxy extrae el mensaje del usuario y lo envia a un clasificador local (por ejemplo, Ollama)
 4. El clasificador devuelve una categoria de intencion (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # respaldo para lo no clasificado
 
 ```bash
 # Ejecutar con enrutamiento inteligente
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Sobreescribir modelo incluso con enrutamiento automatico
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

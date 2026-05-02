@@ -6,8 +6,11 @@ description: Claudex CLI 完整命令参考
 ## 全局用法
 
 ```
-claudex [OPTIONS] [COMMAND]
+claudex [CLAUDE_ARGS...]
+claudex-config [OPTIONS] [COMMAND]
 ```
+
+`claudex` is the Claude-compatible launcher. `claudex-config` owns setup and management commands. Use `CLAUDEX_PROFILE`, `CLAUDEX_MODEL`, `CLAUDEX_HYPERLINKS`, and `CLAUDEX_CONFIG` for launch-time claudex settings.
 
 | 选项 | 说明 |
 |------|------|
@@ -19,45 +22,45 @@ claudex [OPTIONS] [COMMAND]
 
 ## 命令
 
-### `run`
+### launch
 
 使用指定的提供商 profile 运行 Claude Code。
 
 ```bash
-claudex run <PROFILE> [PROMPT] [OPTIONS] [-- ARGS...]
+CLAUDEX_PROFILE=<PROFILE> claudex [PROMPT] [CLAUDE_ARGS...]
 ```
 
 | 参数/选项 | 说明 |
 |-----------|------|
-| `PROFILE` | Profile 名称，或 `auto` 启用智能路由 |
+| `CLAUDEX_PROFILE` | Profile 名称，或 `auto` 启用智能路由 |
 | `PROMPT` | 可选的 prompt，用于非交互（一次性）执行 |
-| `-m, --model MODEL` | 临时覆盖默认模型 |
-| `--hyperlinks` | 强制启用 OSC 8 终端超链接 |
+| `CLAUDEX_MODEL` | 临时覆盖默认模型 |
+| `CLAUDEX_HYPERLINKS=on` | 强制启用 OSC 8 终端超链接 |
 | `--print` | 输出响应后退出（非交互模式） |
 | `--dangerously-skip-permissions` | 跳过所有权限提示（配合 `--print` 用于 CI/CD） |
 | `ARGS...` | 传递给 `claude` 的额外参数（在 `--` 之后） |
 
 ```bash
 # 使用 Grok（交互模式）
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # 指定模型
-claudex run grok -m grok-3-mini-beta
+CLAUDEX_PROFILE=grok CLAUDEX_MODEL=grok-3-mini-beta claudex
 
 # 智能路由
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # 强制启用终端超链接
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # 非交互一次性执行
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # CI/CD 流水线用法（无提示、无权限确认）
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 
 # 传递额外参数给 claude
-claudex run grok -- --verbose
+CLAUDEX_PROFILE=grok claudex --verbose
 ```
 
 ### `profile`
@@ -67,7 +70,7 @@ claudex run grok -- --verbose
 #### `profile list`
 
 ```bash
-claudex profile list
+claudex-config profile list
 ```
 
 列出所有已配置的 profile 及其状态、提供商类型和模型。
@@ -75,7 +78,7 @@ claudex profile list
 #### `profile add`
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 交互式向导，引导完成提供商选择、API 密钥输入（可选密钥链存储）、模型选择和连通性测试。
@@ -83,7 +86,7 @@ claudex profile add
 #### `profile show`
 
 ```bash
-claudex profile show <NAME>
+claudex-config profile show <NAME>
 ```
 
 显示指定 profile 的详细信息，包括所有配置字段。
@@ -91,7 +94,7 @@ claudex profile show <NAME>
 #### `profile remove`
 
 ```bash
-claudex profile remove <NAME>
+claudex-config profile remove <NAME>
 ```
 
 从配置中移除 profile。
@@ -99,7 +102,7 @@ claudex profile remove <NAME>
 #### `profile test`
 
 ```bash
-claudex profile test <NAME|all>
+claudex-config profile test <NAME|all>
 ```
 
 测试指定 profile 或所有 profile 的连通性。向提供商的 `/models` 端点发送轻量请求。
@@ -111,7 +114,7 @@ claudex profile test <NAME|all>
 #### `auth login`
 
 ```bash
-claudex auth login <PROVIDER> [OPTIONS]
+claudex-config auth login <PROVIDER> [OPTIONS]
 ```
 
 | 选项 | 说明 |
@@ -124,41 +127,41 @@ claudex auth login <PROVIDER> [OPTIONS]
 
 ```bash
 # 登录 OpenAI（从 Codex CLI 读取）
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # 登录 Claude（从 ~/.claude 读取）
-claudex auth login claude
+claudex-config auth login claude
 
 # 登录 Google
-claudex auth login google --profile gemini-sub
+claudex-config auth login google --profile gemini-sub
 
 # 使用企业 URL 登录 GitLab
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com
 
 # 无界面模式（无浏览器，仅 Device Code）
-claudex auth login github --headless
+claudex-config auth login github --headless
 ```
 
 #### `auth status`
 
 ```bash
-claudex auth status [PROVIDER]
+claudex-config auth status [PROVIDER]
 ```
 
 显示当前认证状态。不指定提供商时，显示所有已配置 OAuth profile 的状态。
 
 ```bash
 # 检查所有 OAuth profile
-claudex auth status
+claudex-config auth status
 
 # 检查特定提供商
-claudex auth status openai
+claudex-config auth status openai
 ```
 
 #### `auth refresh`
 
 ```bash
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 ```
 
 手动刷新指定提供商的 OAuth token。token 过期时代理也会自动刷新。
@@ -166,7 +169,7 @@ claudex auth refresh <PROVIDER>
 #### `auth logout`
 
 ```bash
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 从系统密钥链中移除指定提供商的已存储 OAuth token。
@@ -178,7 +181,7 @@ claudex auth logout <PROVIDER>
 #### `proxy start`
 
 ```bash
-claudex proxy start [OPTIONS]
+claudex-config proxy start [OPTIONS]
 ```
 
 | 参数 | 说明 |
@@ -189,7 +192,7 @@ claudex proxy start [OPTIONS]
 #### `proxy stop`
 
 ```bash
-claudex proxy stop
+claudex-config proxy stop
 ```
 
 停止代理守护进程（通过 PID 文件发送 SIGTERM）。
@@ -197,7 +200,7 @@ claudex proxy stop
 #### `proxy status`
 
 ```bash
-claudex proxy status
+claudex-config proxy status
 ```
 
 显示代理是否运行及监听端口。
@@ -205,7 +208,7 @@ claudex proxy status
 ### `dashboard`
 
 ```bash
-claudex dashboard
+claudex-config dashboard
 ```
 
 启动 TUI 仪表盘，实时监控和快速启动。
@@ -217,7 +220,7 @@ claudex dashboard
 #### `config show`
 
 ```bash
-claudex config show
+claudex-config config show
 ```
 
 显示已加载的配置文件路径、搜索顺序和当前配置值。
@@ -225,7 +228,7 @@ claudex config show
 #### `config path`
 
 ```bash
-claudex config path
+claudex-config config path
 ```
 
 仅输出解析后的配置文件路径。
@@ -233,7 +236,7 @@ claudex config path
 #### `config init`
 
 ```bash
-claudex config init
+claudex-config config init
 ```
 
 从内置模板在当前目录创建新配置文件。
@@ -241,7 +244,7 @@ claudex config init
 #### `config recreate`
 
 ```bash
-claudex config recreate
+claudex-config config recreate
 ```
 
 从 `config.example.toml` 重新创建配置文件，覆盖现有配置。
@@ -249,7 +252,7 @@ claudex config recreate
 #### `config edit`
 
 ```bash
-claudex config edit
+claudex-config config edit
 ```
 
 在 `$EDITOR`（或 `$VISUAL`）中打开配置文件。
@@ -257,7 +260,7 @@ claudex config edit
 #### `config validate`
 
 ```bash
-claudex config validate
+claudex-config config validate
 ```
 
 验证配置语法、profile 引用（backup_providers、路由规则）和 OAuth 提供商设置。报告错误和警告。
@@ -265,7 +268,7 @@ claudex config validate
 #### `config get`
 
 ```bash
-claudex config get <KEY>
+claudex-config config get <KEY>
 ```
 
 通过键路径获取特定配置值（例如 `proxy_port`、`profiles.0.name`）。
@@ -273,7 +276,7 @@ claudex config get <KEY>
 #### `config set`
 
 ```bash
-claudex config set <KEY> <VALUE>
+claudex-config config set <KEY> <VALUE>
 ```
 
 通过键路径设置特定配置值。
@@ -281,7 +284,7 @@ claudex config set <KEY> <VALUE>
 #### `config export`
 
 ```bash
-claudex config export
+claudex-config config export
 ```
 
 将当前合并后的配置以 TOML 格式导出到标准输出。
@@ -293,7 +296,7 @@ claudex config export
 #### `sets add`
 
 ```bash
-claudex sets add <PATH>
+claudex-config sets add <PATH>
 ```
 
 从包含 `manifest.json`（或 `manifest.yaml`）的本地目录安装配置集。
@@ -301,7 +304,7 @@ claudex sets add <PATH>
 #### `sets remove`
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 按名称移除已安装的配置集。
@@ -309,7 +312,7 @@ claudex sets remove <NAME>
 #### `sets list`
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 列出所有已安装的配置集及其版本、描述和组件摘要。
@@ -317,7 +320,7 @@ claudex sets list
 #### `sets update`
 
 ```bash
-claudex sets update <NAME> <PATH>
+claudex-config sets update <NAME> <PATH>
 ```
 
 从新的清单路径更新已有的配置集。
@@ -325,7 +328,7 @@ claudex sets update <NAME> <PATH>
 #### `sets show`
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 显示已安装配置集的详细信息，包括所有组件。
@@ -333,7 +336,7 @@ claudex sets show <NAME>
 ### `update`
 
 ```bash
-claudex update [OPTIONS]
+claudex-config update [OPTIONS]
 ```
 
 | 参数 | 说明 |

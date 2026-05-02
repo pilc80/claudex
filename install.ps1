@@ -181,11 +181,11 @@ function Maybe-StopRunningProxy {
         return
     }
 
-    $status = (& $Path proxy status 2>$null) -join "`n"
+    $status = (& $Path @("proxy", "status") 2>$null) -join "`n"
     if ($status -match "^Proxy is running") {
         Write-Host $status
         if (Ask-YesNo "Stop the running claudex proxy so the new binary can be replaced?") {
-            Invoke-Native "claudex proxy stop" $Path @("proxy", "stop")
+            Invoke-Native "claudex-config proxy stop" $Path @("proxy", "stop")
         } else {
             throw "Running claudex proxy must be stopped before replacing $Path"
         }
@@ -215,6 +215,7 @@ function Install-FromRelease {
         if ($DryRun) {
             Write-Host "Dry run: release manifest was not available; would query GitHub Releases API as fallback"
             Write-Host "Dry run: would download, verify, unpack, and install to $(Join-Path $InstallDir 'claudex.exe')"
+            Write-Host "Dry run: would install claudex-config.exe to $(Join-Path $InstallDir 'claudex-config.exe')"
             return $null
         }
         $release = Invoke-InstallerRestMethod "https://api.github.com/repos/$Repo/releases/latest"
@@ -237,6 +238,7 @@ function Install-FromRelease {
 
     if ($DryRun) {
         Write-Host "Dry run: would download, verify, unpack, and install to $(Join-Path $InstallDir 'claudex.exe')"
+        Write-Host "Dry run: would install claudex-config.exe to $(Join-Path $InstallDir 'claudex-config.exe')"
         return $null
     }
 
@@ -274,11 +276,16 @@ function Install-FromSource {
         throw "cargo and git are required for source install fallback"
     }
     $source = Join-Path $HOME ".cargo\bin\claudex.exe"
+    $configSource = Join-Path $HOME ".cargo\bin\claudex-config.exe"
     if ($DryRun) {
         Write-Host "Dry run: would run cargo install --git https://github.com/$Repo --force"
         return $source
     }
-    Maybe-StopRunningProxy $source
+    if (Test-Path $configSource) {
+        Maybe-StopRunningProxy $configSource
+    } else {
+        Maybe-StopRunningProxy $source
+    }
     Invoke-Native "cargo install" "cargo" @("install", "--git", "https://github.com/$Repo", "--force")
     if (-not (Test-Path $source)) {
         throw "cargo install finished but $source was not found"
@@ -290,24 +297,37 @@ function Deploy-Binary {
     param([string]$source)
 
     $dest = Join-Path $InstallDir "claudex.exe"
+    $configDest = Join-Path $InstallDir "claudex-config.exe"
     if ($DryRun) {
         Write-Host "Dry run: would install $source to $dest"
+        Write-Host "Dry run: would install claudex-config.exe to $configDest"
         return $dest
     }
 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    Maybe-StopRunningProxy $dest
+    if (Test-Path $configDest) {
+        Maybe-StopRunningProxy $configDest
+    } else {
+        Maybe-StopRunningProxy $dest
+    }
     if ((Test-Path $dest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $dest))) {
         Write-Host "Skipping copy because source and destination are the same file: $dest"
     } else {
         Backup-Existing $dest
         Copy-Item -LiteralPath $source -Destination $dest -Force
     }
+    if ((Test-Path $configDest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $configDest))) {
+        Write-Host "Skipping copy because source and destination are the same file: $configDest"
+    } else {
+        Backup-Existing $configDest
+        Copy-Item -LiteralPath $source -Destination $configDest -Force
+    }
     Add-UserPath $InstallDir
 
     Write-Host ""
     Write-Host "Installed claudex to $dest"
-    Invoke-Native "claudex --version" $dest @("--version")
+    Write-Host "Installed claudex-config to $configDest"
+    Invoke-Native "claudex-config --version" $configDest @("--version")
     return $dest
 }
 
@@ -329,10 +349,11 @@ function Maybe-SetupChatGpt {
         $args += "--force"
     }
 
-    Invoke-Native "claudex auth login" $Path $args
+    $configPath = Join-Path (Split-Path -Parent $Path) "claudex-config.exe"
+    Invoke-Native "claudex-config auth login" $configPath $args
     Write-Host ""
     Write-Host "Run Claude Code through this profile with:"
-    Write-Host "  claudex run $Profile"
+    Write-Host "  `$env:CLAUDEX_PROFILE = `"$Profile`"; claudex"
 }
 
 Write-Host "Claudex Windows Installer"

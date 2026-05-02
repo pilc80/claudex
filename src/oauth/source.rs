@@ -413,7 +413,7 @@ pub fn load_credential_chain(provider: &OAuthProvider) -> Result<RawCredential> 
                     }
                 }
             }
-            anyhow::bail!("no GitLab token found. Set GITLAB_TOKEN or GL_TOKEN environment variable, or run `claudex auth login gitlab`")
+            anyhow::bail!("no GitLab token found. Set GITLAB_TOKEN or GL_TOKEN environment variable, or run `claudex-config auth login gitlab`")
         }
         OAuthProvider::Qwen => {
             anyhow::bail!("Qwen does not support credential chain loading; use config api_key or device code login")

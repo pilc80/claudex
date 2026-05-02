@@ -138,7 +138,7 @@ my-set/
 ### Установка набора
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 Эта команда валидирует манифест, проверяет конфликты с существующими наборами и устанавливает все компоненты.
@@ -146,7 +146,7 @@ claudex sets add ./path/to/set
 ### Список установленных наборов
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Отображает все установленные наборы с их версией, описанием и количеством компонентов.
@@ -154,7 +154,7 @@ claudex sets list
 ### Просмотр подробностей набора
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Показывает подробную информацию об установленном наборе, включая все правила, навыки и MCP-серверы.
@@ -162,7 +162,7 @@ claudex sets show <NAME>
 ### Обновление набора
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 Обновляет существующий набор до новой версии. Удаляет старые компоненты и устанавливает новые.
@@ -170,7 +170,7 @@ claudex sets update <NAME> ./path/to/new-version
 ### Удаление набора
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Удаляет установленный набор и все его компоненты.

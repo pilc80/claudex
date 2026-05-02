@@ -138,7 +138,7 @@ MCP 서버 설정에서 `${VAR_NAME}`으로 참조되는 변수는 설치 시점
 ### 세트 설치
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 매니페스트를 검증하고, 기존 세트와의 충돌을 확인한 후 모든 컴포넌트를 설치합니다.
@@ -146,7 +146,7 @@ claudex sets add ./path/to/set
 ### 설치된 세트 목록
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 모든 설치된 세트의 버전, 설명, 컴포넌트 수를 표시합니다.
@@ -154,7 +154,7 @@ claudex sets list
 ### 세트 상세 정보
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 설치된 세트의 모든 규칙, 스킬, MCP 서버를 포함한 상세 정보를 표시합니다.
@@ -162,7 +162,7 @@ claudex sets show <NAME>
 ### 세트 업데이트
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 기존 세트를 새 버전으로 업데이트합니다. 이전 컴포넌트를 제거하고 새 컴포넌트를 설치합니다.
@@ -170,7 +170,7 @@ claudex sets update <NAME> ./path/to/new-version
 ### 세트 제거
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 설치된 세트와 해당 세트의 모든 컴포넌트를 제거합니다.

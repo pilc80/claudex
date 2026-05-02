@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Usa suscripciones existentes de Claude, ChatGPT, Google, Qwen, Kimi, GitHub Copilot o GitLab Duo. Soporta PKCE en navegador, flujo de codigo de dispositivo y cadena de credenciales desde CLIs nativos.
   </Card>
   <Card title="Conjuntos de configuracion" icon="setting">
-    Instala y gestiona paquetes reutilizables de reglas CLAUDE.md, habilidades y servidores MCP con `claudex sets add`. Manifiestos versionados con deteccion de conflictos.
+    Instala y gestiona paquetes reutilizables de reglas CLAUDE.md, habilidades y servidores MCP con `claudex-config sets add`. Manifiestos versionados con deteccion de conflictos.
   </Card>
   <Card title="Hipervinculos en terminal" icon="external">
     Hipervinculos clicables OSC 8 en la salida del terminal. Detecta automaticamente el soporte del terminal (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) con modo proxy PTY.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Mapea el selector `/model` de Claude Code (haiku, sonnet, opus) a cualquier modelo de proveedor via `[profiles.models]`. Configuracion de modelos por perfil con sobreescritura mediante variables de entorno.
   </Card>
   <Card title="Modo no interactivo" icon="rocket">
-    Ejecucion de un solo uso con `claudex run <profile> "prompt" --print`. Ideal para pipelines CI/CD y automatizacion mediante scripts.
+    Ejecucion de un solo uso con `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Ideal para pipelines CI/CD y automatizacion mediante scripts.
   </Card>
   <Card title="Compatibilidad de nombres de herramientas" icon="list-format">
     Trunca automaticamente nombres de herramientas que superan 64 caracteres para compatibilidad con OpenAI, con restauracion transparente en las respuestas.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Como funciona
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

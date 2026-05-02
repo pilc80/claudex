@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 也可以通过 CLI 参数在每次会话中启用超链接：
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## 终端检测
@@ -42,7 +42,7 @@ claudex run grok --hyperlinks
 
 | 优先级 | 检查项 | 结果 |
 |--------|--------|------|
-| 1 | `FORCE_HYPERLINKS=1` 环境变量 | 启用 |
+| 1 | `CLAUDEX_HYPERLINKS=on` 环境变量 | 启用 |
 | 2 | 非 TTY | 禁用 |
 | 3 | `DOMTERM` 环境变量已设置 | 启用 |
 | 4 | `TERM_PROGRAM` = iTerm.app | 启用 |
@@ -86,7 +86,7 @@ claudex run grok --hyperlinks
 PTY 代理对用户完全透明。仅在交互式会话中激活（使用 `--print` 的非交互模式跳过 PTY）。
 
 <Aside type="tip">
-  如果遇到终端渲染问题，可以在配置中设置 `hyperlinks = false` 或省略 `--hyperlinks` 参数来禁用超链接。
+  如果遇到终端渲染问题，可以在配置中设置 `hyperlinks = false` 或省略 `CLAUDEX_HYPERLINKS=on` 参数来禁用超链接。
 </Aside>
 
 ## 强制启用/禁用
@@ -95,13 +95,13 @@ PTY 代理对用户完全透明。仅在交互式会话中激活（使用 `--pri
 
 ```bash
 # 通过环境变量
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # 通过配置
 hyperlinks = true
 
 # 通过 CLI 参数
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 强制禁用（例如管道输出时）：

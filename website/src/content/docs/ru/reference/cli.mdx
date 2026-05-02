@@ -6,8 +6,11 @@ description: Полный справочник команд Claudex CLI
 ## Общее использование
 
 ```
-claudex [OPTIONS] [COMMAND]
+claudex [CLAUDE_ARGS...]
+claudex-config [OPTIONS] [COMMAND]
 ```
+
+`claudex` is the Claude-compatible launcher. `claudex-config` owns setup and management commands. Use `CLAUDEX_PROFILE`, `CLAUDEX_MODEL`, `CLAUDEX_HYPERLINKS`, and `CLAUDEX_CONFIG` for launch-time claudex settings.
 
 | Опция | Описание |
 |-------|---------|
@@ -19,45 +22,45 @@ claudex [OPTIONS] [COMMAND]
 
 ## Команды
 
-### `run`
+### launch
 
 Запустить Claude Code с конкретным профилем провайдера.
 
 ```bash
-claudex run <PROFILE> [PROMPT] [OPTIONS] [-- ARGS...]
+CLAUDEX_PROFILE=<PROFILE> claudex [PROMPT] [CLAUDE_ARGS...]
 ```
 
 | Аргумент / Опция | Описание |
 |----------|---------|
-| `PROFILE` | Имя профиля или `auto` для умной маршрутизации |
+| `CLAUDEX_PROFILE` | Имя профиля или `auto` для умной маршрутизации |
 | `PROMPT` | Опциональный промпт для неинтерактивного (одиночного) выполнения |
-| `-m, --model MODEL` | Переопределить модель по умолчанию для этой сессии |
-| `--hyperlinks` | Принудительно включить терминальные гиперссылки OSC 8 |
+| `CLAUDEX_MODEL` | Переопределить модель по умолчанию для этой сессии |
+| `CLAUDEX_HYPERLINKS=on` | Принудительно включить терминальные гиперссылки OSC 8 |
 | `--print` | Вывести ответ и выйти (неинтерактивный режим) |
 | `--dangerously-skip-permissions` | Пропустить все запросы разрешений (использовать с `--print` для CI/CD) |
-| `ARGS...` | Дополнительные аргументы, передаваемые в `claude` (после `--`) |
+| `CLAUDE_ARGS...` | Аргументы передаются в `claude` без изменений |
 
 ```bash
 # Использовать Grok (интерактивно)
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # Использовать Grok с конкретной моделью
-claudex run grok -m grok-3-mini-beta
+CLAUDEX_PROFILE=grok CLAUDEX_MODEL=grok-3-mini-beta claudex
 
 # Умная маршрутизация
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Принудительно включить терминальные гиперссылки
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Неинтерактивное одиночное выполнение
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # Использование в CI/CD-конвейере (без запросов, без разрешений)
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 
-# Передать дополнительные аргументы в claude
-claudex run grok -- --verbose
+# Передать аргументы в claude
+CLAUDEX_PROFILE=grok claudex --verbose
 ```
 
 ### `profile`
@@ -67,7 +70,7 @@ claudex run grok -- --verbose
 #### `profile list`
 
 ```bash
-claudex profile list
+claudex-config profile list
 ```
 
 Список всех настроенных профилей с их статусом, типом провайдера и моделью.
@@ -75,7 +78,7 @@ claudex profile list
 #### `profile add`
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 Интерактивный мастер добавления нового профиля. Проводит через выбор провайдера, ввод API-ключа (с опциональным сохранением в связке ключей), выбор модели и тестирование подключения.
@@ -83,7 +86,7 @@ claudex profile add
 #### `profile show`
 
 ```bash
-claudex profile show <NAME>
+claudex-config profile show <NAME>
 ```
 
 Показать подробности конкретного профиля, включая все поля конфигурации.
@@ -91,7 +94,7 @@ claudex profile show <NAME>
 #### `profile remove`
 
 ```bash
-claudex profile remove <NAME>
+claudex-config profile remove <NAME>
 ```
 
 Удалить профиль из конфигурации.
@@ -99,7 +102,7 @@ claudex profile remove <NAME>
 #### `profile test`
 
 ```bash
-claudex profile test <NAME|all>
+claudex-config profile test <NAME|all>
 ```
 
 Тестировать подключение для конкретного профиля или всех профилей. Отправляет лёгкий запрос к endpoint `/models` провайдера.
@@ -111,7 +114,7 @@ claudex profile test <NAME|all>
 #### `auth login`
 
 ```bash
-claudex auth login <PROVIDER> [OPTIONS]
+claudex-config auth login <PROVIDER> [OPTIONS]
 ```
 
 | Опция | Описание |
@@ -124,41 +127,41 @@ claudex auth login <PROVIDER> [OPTIONS]
 
 ```bash
 # Войти в OpenAI (читает из Codex CLI)
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # Войти в Claude (читает из ~/.claude)
-claudex auth login claude
+claudex-config auth login claude
 
 # Войти в Google
-claudex auth login google --profile gemini-sub
+claudex-config auth login google --profile gemini-sub
 
 # Войти в GitLab с enterprise URL
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com
 
 # Headless-режим (без браузера, только device code)
-claudex auth login github --headless
+claudex-config auth login github --headless
 ```
 
 #### `auth status`
 
 ```bash
-claudex auth status [PROVIDER]
+claudex-config auth status [PROVIDER]
 ```
 
 Показать текущий статус аутентификации. Без аргумента провайдера показывает статус всех настроенных OAuth-профилей.
 
 ```bash
 # Проверить все OAuth-профили
-claudex auth status
+claudex-config auth status
 
 # Проверить конкретного провайдера
-claudex auth status openai
+claudex-config auth status openai
 ```
 
 #### `auth refresh`
 
 ```bash
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 ```
 
 Вручную обновить OAuth-токен для провайдера. Токены также обновляются автоматически прокси при истечении срока.
@@ -166,7 +169,7 @@ claudex auth refresh <PROVIDER>
 #### `auth logout`
 
 ```bash
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 Удалить сохранённые OAuth-токены для провайдера из системной связки ключей.
@@ -178,7 +181,7 @@ claudex auth logout <PROVIDER>
 #### `proxy start`
 
 ```bash
-claudex proxy start [OPTIONS]
+claudex-config proxy start [OPTIONS]
 ```
 
 | Флаг | Описание |
@@ -189,7 +192,7 @@ claudex proxy start [OPTIONS]
 #### `proxy stop`
 
 ```bash
-claudex proxy stop
+claudex-config proxy stop
 ```
 
 Остановить демон прокси (отправляет SIGTERM через PID-файл).
@@ -197,7 +200,7 @@ claudex proxy stop
 #### `proxy status`
 
 ```bash
-claudex proxy status
+claudex-config proxy status
 ```
 
 Показать, запущен ли прокси и на каком порту.
@@ -205,7 +208,7 @@ claudex proxy status
 ### `dashboard`
 
 ```bash
-claudex dashboard
+claudex-config dashboard
 ```
 
 Запустить TUI-панель мониторинга для наблюдения в реальном времени и быстрого запуска.
@@ -217,7 +220,7 @@ claudex dashboard
 #### `config show`
 
 ```bash
-claudex config show
+claudex-config config show
 ```
 
 Отобразить путь к загруженному файлу конфигурации, порядок поиска и текущие значения.
@@ -225,7 +228,7 @@ claudex config show
 #### `config path`
 
 ```bash
-claudex config path
+claudex-config config path
 ```
 
 Вывести только разрешённый путь к файлу конфигурации.
@@ -233,7 +236,7 @@ claudex config path
 #### `config init`
 
 ```bash
-claudex config init
+claudex-config config init
 ```
 
 Создать новый файл конфигурации в текущем каталоге из встроенного шаблона.
@@ -241,7 +244,7 @@ claudex config init
 #### `config recreate`
 
 ```bash
-claudex config recreate
+claudex-config config recreate
 ```
 
 Пересоздать файл конфигурации из `config.example.toml`, перезаписав существующую конфигурацию.
@@ -249,7 +252,7 @@ claudex config recreate
 #### `config edit`
 
 ```bash
-claudex config edit
+claudex-config config edit
 ```
 
 Открыть файл конфигурации в вашем `$EDITOR` (или `$VISUAL`).
@@ -257,7 +260,7 @@ claudex config edit
 #### `config validate`
 
 ```bash
-claudex config validate
+claudex-config config validate
 ```
 
 Проверить синтаксис конфигурации, ссылки профилей (backup_providers, правила маршрутизации) и настройки OAuth-провайдеров. Выводит ошибки и предупреждения.
@@ -265,7 +268,7 @@ claudex config validate
 #### `config get`
 
 ```bash
-claudex config get <KEY>
+claudex-config config get <KEY>
 ```
 
 Получить конкретное значение конфигурации по ключу (например, `proxy_port`, `profiles.0.name`).
@@ -273,7 +276,7 @@ claudex config get <KEY>
 #### `config set`
 
 ```bash
-claudex config set <KEY> <VALUE>
+claudex-config config set <KEY> <VALUE>
 ```
 
 Установить конкретное значение конфигурации по ключу.
@@ -281,7 +284,7 @@ claudex config set <KEY> <VALUE>
 #### `config export`
 
 ```bash
-claudex config export
+claudex-config config export
 ```
 
 Экспортировать текущую объединённую конфигурацию в stdout в формате TOML.
@@ -293,7 +296,7 @@ claudex config export
 #### `sets add`
 
 ```bash
-claudex sets add <PATH>
+claudex-config sets add <PATH>
 ```
 
 Установить конфигурационный набор из локального каталога, содержащего `manifest.json` (или `manifest.yaml`).
@@ -301,7 +304,7 @@ claudex sets add <PATH>
 #### `sets remove`
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Удалить установленный конфигурационный набор по имени.
@@ -309,7 +312,7 @@ claudex sets remove <NAME>
 #### `sets list`
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Список всех установленных конфигурационных наборов с их версией, описанием и сводкой компонентов.
@@ -317,7 +320,7 @@ claudex sets list
 #### `sets update`
 
 ```bash
-claudex sets update <NAME> <PATH>
+claudex-config sets update <NAME> <PATH>
 ```
 
 Обновить существующий конфигурационный набор из нового пути к манифесту.
@@ -325,7 +328,7 @@ claudex sets update <NAME> <PATH>
 #### `sets show`
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Показать подробную информацию об установленном конфигурационном наборе, включая все компоненты.
@@ -333,7 +336,7 @@ claudex sets show <NAME>
 ### `update`
 
 ```bash
-claudex update [OPTIONS]
+claudex-config update [OPTIONS]
 ```
 
 | Флаг | Описание |

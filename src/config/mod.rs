@@ -553,7 +553,7 @@ enabled = false
 
     fn resolve_api_keys(&mut self) -> Result<()> {
         // API key 直接从 config 的 api_key 字段读取，不自动访问 keyring。
-        // OAuth token 只在用户显式调用 `claudex auth` 命令时才从 keyring 加载。
+        // OAuth token 只在用户显式调用 `claudex-config auth` 命令时才从 keyring 加载。
         // 这样避免 macOS Keychain 反复弹出授权弹窗。
         Ok(())
     }

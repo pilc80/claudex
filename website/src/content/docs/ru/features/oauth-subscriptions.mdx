@@ -91,7 +91,7 @@ auth_type = "oauth"
 oauth_provider = "claude"
 ```
 
-Шаг `claudex auth login` не требуется. Если вы уже вошли в Claude Code, всё работает сразу.
+Шаг `claudex-config auth login` не требуется. Если вы уже вошли в Claude Code, всё работает сразу.
 
 ### ChatGPT / Codex
 
@@ -104,17 +104,17 @@ Claudex также читает токены из конфигурации Codex
 
 ```bash
 # Browser flow (по умолчанию)
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # Device code flow (headless)
-claudex auth login openai --profile codex-sub --headless
+claudex-config auth login openai --profile codex-sub --headless
 ```
 
 ### GitHub Copilot
 
 Использует Device Code flow GitHub:
 
-1. `claudex auth login github` отображает device code
+1. `claudex-config auth login github` отображает device code
 2. Откройте `https://github.com/login/device` и введите код
 3. Токен сохраняется в системной связке ключей
 
@@ -126,25 +126,25 @@ claudex auth login openai --profile codex-sub --headless
 
 ```bash
 export GITLAB_TOKEN=glpat-...
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 ```
 
 Для self-hosted инстансов GitLab:
 
 ```bash
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
 ```
 
 ### Google Gemini
 
-Читает учётные данные из конфигурации Gemini CLI. Сначала установите и аутентифицируйтесь в Gemini CLI, затем `claudex auth login google` прочитает сохранённый токен.
+Читает учётные данные из конфигурации Gemini CLI. Сначала установите и аутентифицируйтесь в Gemini CLI, затем `claudex-config auth login google` прочитает сохранённый токен.
 
 ### Qwen
 
 Использует OAuth Device Code flow. Claudex отображает код и URL для аутентификации:
 
 ```bash
-claudex auth login qwen --profile qwen-oauth
+claudex-config auth login qwen --profile qwen-oauth
 # Отображает: Go to https://... and enter code: XXXX-XXXX
 ```
 
@@ -166,19 +166,19 @@ ANTHROPIC_AUTH_TOKEN=claudex-passthrough
 
 ```bash
 # Вход к провайдеру
-claudex auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
+claudex-config auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
 
 # Проверка статуса аутентификации для всех OAuth-профилей
-claudex auth status
+claudex-config auth status
 
 # Проверка конкретного провайдера
-claudex auth status openai
+claudex-config auth status openai
 
 # Ручное обновление токена
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 
 # Удаление сохранённых токенов
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 ## Значения по умолчанию для провайдеров

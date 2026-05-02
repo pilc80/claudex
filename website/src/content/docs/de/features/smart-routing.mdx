@@ -5,11 +5,11 @@ description: Absichtsbasiertes automatisches Anbieter-Routing
 
 import { Aside } from '@astrojs/starlight/components';
 
-Das intelligente Routing waehlt fuer jede Anfrage automatisch den besten Anbieter anhand der Absichtsklassifikation aus. Mit `claudex run auto` aktivieren.
+Das intelligente Routing waehlt fuer jede Anfrage automatisch den besten Anbieter anhand der Absichtsklassifikation aus. Mit `CLAUDEX_PROFILE=auto claudex` aktivieren.
 
 ## Funktionsweise
 
-1. Benutzer fuehrt `claudex run auto` aus
+1. Benutzer fuehrt `CLAUDEX_PROFILE=auto claudex` aus
 2. Claude Code sendet eine Anfrage an den Proxy
 3. Der Proxy extrahiert die Nachricht des Benutzers und sendet sie an einen lokalen Klassifikator (z.B. Ollama)
 4. Der Klassifikator gibt eine Absichtskategorie zurueck (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # Fallback fuer nicht klassifizierte Anfragen
 
 ```bash
 # Mit intelligentem Routing ausfuehren
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Modell auch beim Auto-Routing ueberschreiben
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

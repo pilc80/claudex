@@ -108,11 +108,11 @@ jobs:
         run: |
           cd target/${TARGET}/release
           if [ "${{ runner.os }}" = "Windows" ]; then
-            powershell -NoProfile -Command "Compress-Archive -Path claudex.exe -DestinationPath '../../../claudex-${TAG}-${TARGET}.zip' -Force"
+            powershell -NoProfile -Command "Compress-Archive -Path claudex.exe,claudex-config.exe -DestinationPath '../../../claudex-${TAG}-${TARGET}.zip' -Force"
             cd ../../..
             powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 'claudex-${TAG}-${TARGET}.zip').Hash.ToLower() + '  claudex-${TAG}-${TARGET}.zip' | Set-Content -NoNewline 'claudex-${TAG}-${TARGET}.zip.sha256'"
           else
-            tar czf ../../../claudex-${TAG}-${TARGET}.tar.gz claudex
+            tar czf ../../../claudex-${TAG}-${TARGET}.tar.gz claudex claudex-config
             cd ../../..
             shasum -a 256 "claudex-${TAG}-${TARGET}.tar.gz" > "claudex-${TAG}-${TARGET}.tar.gz.sha256"
           fi

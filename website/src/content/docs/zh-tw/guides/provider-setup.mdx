@@ -24,7 +24,7 @@ default_model = "claude-sonnet-4-20250514"
 ```
 
 ```bash
-claudex profile test anthropic
+claudex-config profile test anthropic
 ```
 
 ### MiniMax
@@ -42,7 +42,7 @@ default_model = "claude-sonnet-4-20250514"
 ```
 
 ```bash
-claudex profile test minimax
+claudex-config profile test minimax
 ```
 
 ### OpenRouter
@@ -60,7 +60,7 @@ default_model = "anthropic/claude-sonnet-4"
 ```
 
 ```bash
-claudex profile test openrouter
+claudex-config profile test openrouter
 ```
 
 <Aside type="tip">
@@ -82,7 +82,7 @@ default_model = "grok-3-beta"
 ```
 
 ```bash
-claudex profile test grok
+claudex-config profile test grok
 ```
 
 ### OpenAI
@@ -100,7 +100,7 @@ default_model = "gpt-4o"
 ```
 
 ```bash
-claudex profile test chatgpt
+claudex-config profile test chatgpt
 ```
 
 ### DeepSeek
@@ -118,7 +118,7 @@ default_model = "deepseek-chat"
 ```
 
 ```bash
-claudex profile test deepseek
+claudex-config profile test deepseek
 ```
 
 ### Kimi / Moonshot
@@ -136,7 +136,7 @@ default_model = "kimi-k2-0905-preview"
 ```
 
 ```bash
-claudex profile test kimi
+claudex-config profile test kimi
 ```
 
 ### GLM / Zhipu
@@ -154,7 +154,7 @@ default_model = "glm-4.6"
 ```
 
 ```bash
-claudex profile test glm
+claudex-config profile test glm
 ```
 
 ### Groq
@@ -172,7 +172,7 @@ default_model = "llama-3.3-70b-versatile"
 ```
 
 ```bash
-claudex profile test groq
+claudex-config profile test groq
 ```
 
 <Aside type="tip">
@@ -194,7 +194,7 @@ default_model = "mistral-large-latest"
 ```
 
 ```bash
-claudex profile test mistral
+claudex-config profile test mistral
 ```
 
 ### Together AI
@@ -212,7 +212,7 @@ default_model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
 ```
 
 ```bash
-claudex profile test together
+claudex-config profile test together
 ```
 
 ### Perplexity
@@ -230,7 +230,7 @@ default_model = "sonar-pro"
 ```
 
 ```bash
-claudex profile test perplexity
+claudex-config profile test perplexity
 ```
 
 <Aside type="note">
@@ -252,7 +252,7 @@ default_model = "llama-3.3-70b"
 ```
 
 ```bash
-claudex profile test cerebras
+claudex-config profile test cerebras
 ```
 
 ## 雲端平台
@@ -276,7 +276,7 @@ api-version = "2024-12-01-preview"
 ```
 
 ```bash
-claudex profile test azure-openai
+claudex-config profile test azure-openai
 ```
 
 <Aside type="note">
@@ -298,7 +298,7 @@ default_model = "claude-sonnet-4@20250514"
 ```
 
 ```bash
-claudex profile test vertex-ai
+claudex-config profile test vertex-ai
 ```
 
 <Aside type="caution">
@@ -353,7 +353,7 @@ opus = "claude-opus-4-20250514"
 ```
 
 <Aside type="note">
-  Claude OAuth profile 使用特殊的 gateway 認證模式。Claudex 跳過代理，讓 Claude Code 直接使用自身的 OAuth。無需單獨的 `claudex auth login` 步驟。
+  Claude OAuth profile 使用特殊的 gateway 認證模式。Claudex 跳過代理，讓 Claude Code 直接使用自身的 OAuth。無需單獨的 `claudex-config auth login` 步驟。
 </Aside>
 
 ### ChatGPT Plus / Codex CLI
@@ -389,13 +389,13 @@ opus = "gpt-5.5"
 
 ```bash
 # 從 Codex CLI 讀取 token
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # 驗證
-claudex auth status
+claudex-config auth status
 
 # 執行
-claudex run codex-sub
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 <Aside type="tip">
@@ -423,10 +423,10 @@ opus = "gemini-2.5-pro"
 
 ```bash
 # 登入時從 Gemini CLI 憑證讀取
-claudex auth login google --profile gemini-sub
+claudex-config auth login google --profile gemini-sub
 
 # 驗證
-claudex auth status
+claudex-config auth status
 ```
 
 ### Qwen / 通義千問
@@ -445,10 +445,10 @@ oauth_provider = "qwen"
 
 ```bash
 # 啟動 Device Code 流程
-claudex auth login qwen --profile qwen-oauth
+claudex-config auth login qwen --profile qwen-oauth
 
 # 驗證
-claudex auth status
+claudex-config auth status
 ```
 
 ### Kimi / Moonshot（OAuth）
@@ -467,10 +467,10 @@ oauth_provider = "kimi"
 
 ```bash
 # 登入時從 Kimi CLI 憑證讀取
-claudex auth login kimi --profile kimi-oauth
+claudex-config auth login kimi --profile kimi-oauth
 
 # 驗證
-claudex auth status
+claudex-config auth status
 ```
 
 ### GitHub Copilot
@@ -489,10 +489,10 @@ oauth_provider = "github"
 
 ```bash
 # 啟動 Device Code 流程（開啟瀏覽器進行 GitHub 登入）
-claudex auth login github --profile copilot
+claudex-config auth login github --profile copilot
 
 # 驗證
-claudex auth status
+claudex-config auth status
 ```
 
 ### GitLab Duo
@@ -514,10 +514,10 @@ oauth_provider = "gitlab"
 export GITLAB_TOKEN=glpat-...
 
 # 登入
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 
 # 驗證
-claudex auth status
+claudex-config auth status
 ```
 
 <Aside type="note">
@@ -547,7 +547,7 @@ default_model = "qwen2.5:72b"
 ```
 
 ```bash
-claudex profile test local-qwen
+claudex-config profile test local-qwen
 ```
 
 <Aside type="note">
@@ -594,11 +594,11 @@ default_model = "local-model"
 
 ```bash
 # 測試特定 profile
-claudex profile test <profile-name>
+claudex-config profile test <profile-name>
 
 # 測試所有 profile
-claudex profile test all
+claudex-config profile test all
 
 # 列出所有已設定的 profile
-claudex profile list
+claudex-config profile list
 ```

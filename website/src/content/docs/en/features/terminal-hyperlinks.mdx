@@ -33,7 +33,7 @@ hyperlinks = "auto"    # "auto" | true | false
 You can also enable hyperlinks per-session via the CLI flag:
 
 ```bash
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 ## Terminal Detection
@@ -42,7 +42,7 @@ When `hyperlinks = "auto"`, Claudex checks the following in order:
 
 | Priority | Check | Result |
 |----------|-------|--------|
-| 1 | `FORCE_HYPERLINKS=1` env var | Enable |
+| 1 | `CLAUDEX_HYPERLINKS=on` env var | Enable |
 | 2 | Not a TTY | Disable |
 | 3 | `DOMTERM` env var set | Enable |
 | 4 | `TERM_PROGRAM` = iTerm.app | Enable |
@@ -86,7 +86,7 @@ When hyperlinks are enabled on Unix systems, Claudex spawns the Claude Code proc
 The PTY proxy is transparent to the user. It is only activated for interactive sessions (non-interactive mode with `--print` skips the PTY).
 
 <Aside type="tip">
-  If you experience issues with terminal rendering, you can disable hyperlinks with `hyperlinks = false` in your config or by omitting the `--hyperlinks` flag.
+  If you experience issues with terminal rendering, you can disable hyperlinks with `hyperlinks = false` in your config or by omitting the `CLAUDEX_HYPERLINKS=on` flag.
 </Aside>
 
 ## Force Enable/Disable
@@ -95,13 +95,13 @@ For terminals not in the auto-detection list, you can force hyperlinks:
 
 ```bash
 # Via environment variable
-FORCE_HYPERLINKS=1 claudex run grok
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Via config
 hyperlinks = true
 
 # Via CLI flag
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 ```
 
 To force disable (e.g., when piping output):

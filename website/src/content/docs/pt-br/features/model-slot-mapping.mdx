@@ -135,7 +135,7 @@ Se `[profiles.models]` nao for especificado, todos os tres slots usam o `default
 Voce pode substituir slots sem modificar o config definindo variaveis de ambiente diretamente:
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Variaveis de ambiente tem precedencia sobre a configuracao do profile.

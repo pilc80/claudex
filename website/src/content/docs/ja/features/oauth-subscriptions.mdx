@@ -91,7 +91,7 @@ auth_type = "oauth"
 oauth_provider = "claude"
 ```
 
-`claudex auth login` の手順は不要です。Claude Code にすでにログインしていれば、すぐに動作します。
+`claudex-config auth login` の手順は不要です。Claude Code にすでにログインしていれば、すぐに動作します。
 
 ### ChatGPT / Codex
 
@@ -104,17 +104,17 @@ Claudex はフォールバックとして Codex CLI の設定 `~/.codex/auth.jso
 
 ```bash
 # ブラウザフロー（デフォルト）
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # デバイスコードフロー（ヘッドレス）
-claudex auth login openai --profile codex-sub --headless
+claudex-config auth login openai --profile codex-sub --headless
 ```
 
 ### GitHub Copilot
 
 GitHub のデバイスコードフローを使用します:
 
-1. `claudex auth login github` がデバイスコードを表示
+1. `claudex-config auth login github` がデバイスコードを表示
 2. `https://github.com/login/device` を開いてコードを入力
 3. トークンがシステムキーリングに保存される
 
@@ -126,25 +126,25 @@ GitHub のデバイスコードフローを使用します:
 
 ```bash
 export GITLAB_TOKEN=glpat-...
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 ```
 
 セルフホスト GitLab インスタンスの場合:
 
 ```bash
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com --profile gitlab-duo
 ```
 
 ### Google Gemini
 
-Gemini CLI の設定からクレデンシャルを読み取ります。Gemini CLI をインストールして認証した後、`claudex auth login google` で保存されたトークンを読み取ります。
+Gemini CLI の設定からクレデンシャルを読み取ります。Gemini CLI をインストールして認証した後、`claudex-config auth login google` で保存されたトークンを読み取ります。
 
 ### Qwen
 
 OAuth デバイスコードフローを使用します。Claudex は認証用のコードと URL を表示します:
 
 ```bash
-claudex auth login qwen --profile qwen-oauth
+claudex-config auth login qwen --profile qwen-oauth
 # 表示: Go to https://... and enter code: XXXX-XXXX
 ```
 
@@ -166,19 +166,19 @@ ANTHROPIC_AUTH_TOKEN=claudex-passthrough
 
 ```bash
 # プロバイダーにログイン
-claudex auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
+claudex-config auth login <PROVIDER> [--profile <NAME>] [--enterprise-url <URL>] [--headless]
 
 # すべての OAuth プロファイルの認証ステータスを確認
-claudex auth status
+claudex-config auth status
 
 # 特定のプロバイダーを確認
-claudex auth status openai
+claudex-config auth status openai
 
 # 手動でトークンをリフレッシュ
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 
 # 保存されたトークンを削除
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 ## プロバイダーデフォルト

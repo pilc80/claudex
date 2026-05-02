@@ -138,7 +138,7 @@ Las variables referenciadas como `${VAR_NAME}` en las configuraciones de servido
 ### Instalar un conjunto
 
 ```bash
-claudex sets add ./path/to/set
+claudex-config sets add ./path/to/set
 ```
 
 Esto valida el manifiesto, comprueba conflictos con conjuntos existentes e instala todos los componentes.
@@ -146,7 +146,7 @@ Esto valida el manifiesto, comprueba conflictos con conjuntos existentes e insta
 ### Listar conjuntos instalados
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Muestra todos los conjuntos instalados con su version, descripcion y recuento de componentes.
@@ -154,7 +154,7 @@ Muestra todos los conjuntos instalados con su version, descripcion y recuento de
 ### Mostrar detalles del conjunto
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Muestra informacion detallada sobre un conjunto instalado, incluyendo todas las reglas, habilidades y servidores MCP.
@@ -162,7 +162,7 @@ Muestra informacion detallada sobre un conjunto instalado, incluyendo todas las 
 ### Actualizar un conjunto
 
 ```bash
-claudex sets update <NAME> ./path/to/new-version
+claudex-config sets update <NAME> ./path/to/new-version
 ```
 
 Actualiza un conjunto existente a una nueva version. Elimina los componentes antiguos e instala los nuevos.
@@ -170,7 +170,7 @@ Actualiza un conjunto existente a una nueva version. Elimina los componentes ant
 ### Eliminar un conjunto
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Elimina un conjunto instalado y todos sus componentes.

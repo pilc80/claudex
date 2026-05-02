@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Используйте существующие подписки Claude, ChatGPT, Google, Qwen, Kimi, GitHub Copilot или GitLab Duo. Поддержка browser PKCE, device code flow и цепочки учётных данных из нативных CLI.
   </Card>
   <Card title="Конфигурационные наборы" icon="setting">
-    Устанавливайте и управляйте повторно используемыми пакетами правил CLAUDE.md, навыков и MCP-серверов через `claudex sets add`. Версионированные манифесты с обнаружением конфликтов.
+    Устанавливайте и управляйте повторно используемыми пакетами правил CLAUDE.md, навыков и MCP-серверов через `claudex-config sets add`. Версионированные манифесты с обнаружением конфликтов.
   </Card>
   <Card title="Терминальные гиперссылки" icon="external">
     Кликабельные OSC 8 гиперссылки в терминальном выводе. Автоопределение поддержки терминала (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) с режимом PTY-прокси.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Сопоставьте переключатель `/model` Claude Code (haiku, sonnet, opus) с любой моделью провайдера через `[profiles.models]`. Конфигурация моделей на уровне профиля с переопределением через переменные окружения.
   </Card>
   <Card title="Неинтерактивный режим" icon="rocket">
-    Одиночное выполнение с `claudex run <profile> "prompt" --print`. Идеально подходит для CI/CD-конвейеров и автоматизации скриптов.
+    Одиночное выполнение с `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Идеально подходит для CI/CD-конвейеров и автоматизации скриптов.
   </Card>
   <Card title="Совместимость имён инструментов" icon="list-format">
     Автоматическое усечение имён инструментов длиннее 64 символов для совместимости с OpenAI, с прозрачным восстановлением оригинальных имён в ответах.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Как это работает
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

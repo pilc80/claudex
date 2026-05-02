@@ -16,6 +16,29 @@ fn windows_installer_uses_safe_web_wrappers() {
 }
 
 #[test]
+fn installers_use_claudex_config_for_management() {
+    let unix_installer = fs::read_to_string("install.sh").expect("install.sh should exist");
+    let windows_installer = install_ps1();
+    let release_workflow =
+        fs::read_to_string(".github/workflows/release.yml").expect("release workflow should exist");
+
+    assert!(unix_installer.contains("claudex-config"));
+    assert!(unix_installer.contains("\"$INSTALLED_CONFIG_BIN\" auth login chatgpt"));
+    assert!(unix_installer.contains("\"$INSTALLED_CONFIG_BIN\" proxy status"));
+    assert!(windows_installer.contains("claudex-config.exe"));
+    assert!(windows_installer.contains("@(\"auth\", \"login\", \"chatgpt\""));
+    assert!(windows_installer.contains("@(\"proxy\", \"status\")"));
+    assert!(release_workflow.contains("claudex-config"));
+}
+
+#[test]
+fn claudex_binary_dispatches_by_argv0_for_config_links() {
+    let launcher = fs::read_to_string("src/bin/claudex.rs").expect("launcher bin should exist");
+
+    assert!(launcher.contains("run_from_argv0"));
+}
+
+#[test]
 fn windows_installer_checks_native_exit_codes() {
     let script = install_ps1();
 

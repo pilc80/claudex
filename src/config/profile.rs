@@ -8,7 +8,7 @@ use super::{ClaudexConfig, ProfileConfig, ProviderType};
 
 pub async fn list_profiles(config: &ClaudexConfig) {
     if config.profiles.is_empty() {
-        println!("No profiles configured. Add one with: claudex profile add");
+        println!("No profiles configured. Add one with: claudex-config profile add");
         return;
     }
     println!(

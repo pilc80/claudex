@@ -44,7 +44,7 @@ Claudex 是一个统一代理，通过自动协议翻译让 [Claude Code](https:
 - **OAuth 订阅** — ChatGPT/Codex、Claude Max、GitHub Copilot、GitLab Duo、Google Gemini、Qwen、Kimi
 - **配置集** — 从 git 仓库安装和管理可复用的 Claude Code 配置集
 - **TUI 仪表盘** — 实时 profile 健康状态、指标、日志及快速启动
-- **自动更新** — `claudex update` 从 GitHub 下载最新版本
+- **自动更新** — `claudex-config update` 从 GitHub 下载最新版本
 
 ## 安装
 
@@ -69,25 +69,25 @@ cargo install --git https://github.com/pilc80/claudex
 
 ```bash
 # 1. 初始化配置
-claudex config init
+claudex-config config init
 
 # 2. 交互式添加提供商 profile
-claudex profile add
+claudex-config profile add
 
 # 3. 测试连通性
-claudex profile test all
+claudex-config profile test all
 
 # 4. 使用指定提供商运行 Claude Code
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # 5. 或使用智能路由自动选择最佳提供商
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 ```
 
 ## 工作原理
 
 ```
-claudex run openrouter-claude
+CLAUDEX_PROFILE=openrouter-claude claudex
     │
     ├── 启动代理（如未运行）→ 127.0.0.1:13456
     │
@@ -148,35 +148,35 @@ Claudex 按以下顺序查找配置文件：
 
 | 命令 | 说明 |
 |------|------|
-| `claudex run <profile>` | 使用指定提供商运行 Claude Code |
-| `claudex run auto` | 智能路由，自动选择最佳提供商 |
-| `claudex run <profile> -m <model>` | 为本次会话覆盖模型 |
-| `claudex profile list` | 列出所有已配置的 profile |
-| `claudex profile add` | 交互式 profile 配置向导 |
-| `claudex profile show <name>` | 显示 profile 详情 |
-| `claudex profile remove <name>` | 删除 profile |
-| `claudex profile test <name\|all>` | 测试提供商连通性 |
-| `claudex proxy start [-p port] [-d]` | 启动代理（可选后台守护进程模式）|
-| `claudex proxy stop` | 停止代理守护进程 |
-| `claudex proxy status` | 显示代理状态 |
-| `claudex dashboard` | 启动 TUI 仪表盘 |
-| `claudex config show [--raw] [--json]` | 显示已加载的配置 |
-| `claudex config init [--yaml]` | 在当前目录创建配置文件 |
-| `claudex config edit [--global]` | 用 $EDITOR 打开配置文件 |
-| `claudex config validate [--connectivity]` | 校验配置 |
-| `claudex config get <key>` | 获取配置值 |
-| `claudex config set <key> <value>` | 设置配置值 |
-| `claudex config export --format <fmt>` | 导出配置（json/toml/yaml）|
-| `claudex update [--check]` | 从 GitHub Releases 自动更新 |
-| `claudex auth login <provider>` | OAuth 登录 |
-| `claudex auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
-| `claudex auth status` | 显示 OAuth token 状态 |
-| `claudex auth logout <profile>` | 删除 OAuth token |
-| `claudex auth refresh <profile>` | 强制刷新 OAuth token |
-| `claudex sets add <source> [--global]` | 安装配置集 |
-| `claudex sets remove <name>` | 删除配置集 |
-| `claudex sets list [--global]` | 列出已安装的配置集 |
-| `claudex sets update [name]` | 将配置集更新到最新版本 |
+| `CLAUDEX_PROFILE=<profile> claudex` | 使用指定提供商运行 Claude Code |
+| `CLAUDEX_PROFILE=auto claudex` | 智能路由，自动选择最佳提供商 |
+| `CLAUDEX_PROFILE=<profile> CLAUDEX_MODEL=<model> claudex` | 为本次会话覆盖模型 |
+| `claudex-config profile list` | 列出所有已配置的 profile |
+| `claudex-config profile add` | 交互式 profile 配置向导 |
+| `claudex-config profile show <name>` | 显示 profile 详情 |
+| `claudex-config profile remove <name>` | 删除 profile |
+| `claudex-config profile test <name\|all>` | 测试提供商连通性 |
+| `claudex-config proxy start [-p port] [-d]` | 启动代理（可选后台守护进程模式）|
+| `claudex-config proxy stop` | 停止代理守护进程 |
+| `claudex-config proxy status` | 显示代理状态 |
+| `claudex-config dashboard` | 启动 TUI 仪表盘 |
+| `claudex-config config show [--raw] [--json]` | 显示已加载的配置 |
+| `claudex-config config init [--yaml]` | 在当前目录创建配置文件 |
+| `claudex-config config edit [--global]` | 用 $EDITOR 打开配置文件 |
+| `claudex-config config validate [--connectivity]` | 校验配置 |
+| `claudex-config config get <key>` | 获取配置值 |
+| `claudex-config config set <key> <value>` | 设置配置值 |
+| `claudex-config config export --format <fmt>` | 导出配置（json/toml/yaml）|
+| `claudex-config update [--check]` | 从 GitHub Releases 自动更新 |
+| `claudex-config auth login <provider>` | OAuth 登录 |
+| `claudex-config auth login github --enterprise-url <domain>` | GitHub Enterprise Copilot |
+| `claudex-config auth status` | 显示 OAuth token 状态 |
+| `claudex-config auth logout <profile>` | 删除 OAuth token |
+| `claudex-config auth refresh <profile>` | 强制刷新 OAuth token |
+| `claudex-config sets add <source> [--global]` | 安装配置集 |
+| `claudex-config sets remove <name>` | 删除配置集 |
+| `claudex-config sets list [--global]` | 列出已安装的配置集 |
+| `claudex-config sets update [name]` | 将配置集更新到最新版本 |
 
 ## OAuth 订阅
 
@@ -184,28 +184,28 @@ Claudex 按以下顺序查找配置文件：
 
 ```bash
 # ChatGPT 订阅（自动检测已有 Codex CLI 凭证）
-claudex auth login chatgpt --profile codex-sub
+claudex-config auth login chatgpt --profile codex-sub
 
 # ChatGPT 强制浏览器登录
-claudex auth login chatgpt --profile codex-sub --force
+claudex-config auth login chatgpt --profile codex-sub --force
 
 # ChatGPT 无头模式（SSH / 无浏览器环境）
-claudex auth login chatgpt --profile codex-sub --force --headless
+claudex-config auth login chatgpt --profile codex-sub --force --headless
 
 # GitHub Copilot
-claudex auth login github --profile copilot
+claudex-config auth login github --profile copilot
 
 # GitHub Copilot Enterprise
-claudex auth login github --profile copilot-ent --enterprise-url company.ghe.com
+claudex-config auth login github --profile copilot-ent --enterprise-url company.ghe.com
 
 # GitLab Duo（读取 GITLAB_TOKEN 环境变量）
-claudex auth login gitlab --profile gitlab-duo
+claudex-config auth login gitlab --profile gitlab-duo
 
 # 查看状态
-claudex auth status
+claudex-config auth status
 
 # 使用订阅运行
-claudex run codex-sub
+CLAUDEX_PROFILE=codex-sub claudex
 ```
 
 支持的提供商：`claude`、`chatgpt`/`openai`、`google`、`qwen`、`kimi`、`github`/`copilot`、`gitlab`
@@ -232,7 +232,10 @@ opus = "deepseek/deepseek-r1"
 
 ```
 src/
-├── main.rs
+├── lib.rs
+├── bin/
+│   ├── claudex.rs
+│   └── claudex-config.rs
 ├── cli.rs
 ├── update.rs
 ├── util.rs

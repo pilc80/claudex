@@ -135,7 +135,7 @@ If `[profiles.models]` is not specified, all three slots fall back to the profil
 You can override slots without modifying the config by setting environment variables directly:
 
 ```bash
-ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model claudex run grok
+ANTHROPIC_DEFAULT_HAIKU_MODEL=my-fast-model CLAUDEX_PROFILE=grok claudex
 ```
 
 Environment variables take precedence over profile configuration.

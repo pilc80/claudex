@@ -6,8 +6,11 @@ description: Vollstaendige Befehlsreferenz fuer die Claudex CLI
 ## Allgemeine Verwendung
 
 ```
-claudex [OPTIONS] [COMMAND]
+claudex [CLAUDE_ARGS...]
+claudex-config [OPTIONS] [COMMAND]
 ```
+
+`claudex` is the Claude-compatible launcher. `claudex-config` owns setup and management commands. Use `CLAUDEX_PROFILE`, `CLAUDEX_MODEL`, `CLAUDEX_HYPERLINKS`, and `CLAUDEX_CONFIG` for launch-time claudex settings.
 
 | Option | Beschreibung |
 |--------|--------------|
@@ -19,45 +22,45 @@ Ohne Befehl startet Claudex das TUI-Dashboard, wenn Profile konfiguriert sind, o
 
 ## Befehle
 
-### `run`
+### launch
 
 Claude Code mit einem bestimmten Anbieterprofil ausfuehren.
 
 ```bash
-claudex run <PROFILE> [PROMPT] [OPTIONS] [-- ARGS...]
+CLAUDEX_PROFILE=<PROFILE> claudex [PROMPT] [CLAUDE_ARGS...]
 ```
 
 | Argument / Option | Beschreibung |
 |-------------------|--------------|
-| `PROFILE` | Profilname oder `auto` fuer intelligentes Routing |
+| `CLAUDEX_PROFILE` | Profilname oder `auto` fuer intelligentes Routing |
 | `PROMPT` | Optionaler Prompt fuer nicht-interaktive (einmalige) Ausfuehrung |
-| `-m, --model MODEL` | Standardmodell fuer diese Sitzung ueberschreiben |
-| `--hyperlinks` | OSC-8-Terminal-Hyperlinks erzwingen |
+| `CLAUDEX_MODEL` | Standardmodell fuer diese Sitzung ueberschreiben |
+| `CLAUDEX_HYPERLINKS=on` | OSC-8-Terminal-Hyperlinks erzwingen |
 | `--print` | Antwort ausgeben und beenden (nicht-interaktiver Modus) |
 | `--dangerously-skip-permissions` | Alle Berechtigungsabfragen ueberspringen (mit `--print` fuer CI/CD verwenden) |
-| `ARGS...` | Zusaetzliche Argumente, die an `claude` uebergeben werden (nach `--`) |
+| `CLAUDE_ARGS...` | Argumente werden unveraendert an `claude` uebergeben |
 
 ```bash
 # Grok verwenden (interaktiv)
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
 
 # Grok mit einem bestimmten Modell verwenden
-claudex run grok -m grok-3-mini-beta
+CLAUDEX_PROFILE=grok CLAUDEX_MODEL=grok-3-mini-beta claudex
 
 # Intelligentes Routing
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Terminal-Hyperlinks erzwingen
-claudex run grok --hyperlinks
+CLAUDEX_PROFILE=grok CLAUDEX_HYPERLINKS=on claudex
 
 # Nicht-interaktive einmalige Ausfuehrung
-claudex run grok "Explain this codebase" --print
+CLAUDEX_PROFILE=grok claudex "Explain this codebase" --print
 
 # CI/CD-Pipeline-Verwendung (keine Abfragen, keine Berechtigungen)
-claudex run grok "Fix lint errors" --print --dangerously-skip-permissions
+CLAUDEX_PROFILE=grok claudex "Fix lint errors" --print --dangerously-skip-permissions
 
-# Zusaetzliche Argumente an claude uebergeben
-claudex run grok -- --verbose
+# Argumente an claude uebergeben
+CLAUDEX_PROFILE=grok claudex --verbose
 ```
 
 ### `profile`
@@ -67,7 +70,7 @@ Anbieterprofile verwalten.
 #### `profile list`
 
 ```bash
-claudex profile list
+claudex-config profile list
 ```
 
 Alle konfigurierten Profile mit Status, Anbietertyp und Modell auflisten.
@@ -75,7 +78,7 @@ Alle konfigurierten Profile mit Status, Anbietertyp und Modell auflisten.
 #### `profile add`
 
 ```bash
-claudex profile add
+claudex-config profile add
 ```
 
 Interaktiver Assistent zum Hinzufuegen eines neuen Profils. Fuehrt durch Anbieterauswahl, API-Schluessel-Eingabe (mit optionaler Schluesselbund-Speicherung), Modellauswahl und Konnektivitaetstests.
@@ -83,7 +86,7 @@ Interaktiver Assistent zum Hinzufuegen eines neuen Profils. Fuehrt durch Anbiete
 #### `profile show`
 
 ```bash
-claudex profile show <NAME>
+claudex-config profile show <NAME>
 ```
 
 Details fuer ein bestimmtes Profil einschliesslich aller Konfigurationsfelder anzeigen.
@@ -91,7 +94,7 @@ Details fuer ein bestimmtes Profil einschliesslich aller Konfigurationsfelder an
 #### `profile remove`
 
 ```bash
-claudex profile remove <NAME>
+claudex-config profile remove <NAME>
 ```
 
 Ein Profil aus der Konfiguration entfernen.
@@ -99,7 +102,7 @@ Ein Profil aus der Konfiguration entfernen.
 #### `profile test`
 
 ```bash
-claudex profile test <NAME|all>
+claudex-config profile test <NAME|all>
 ```
 
 Konnektivitaet fuer ein bestimmtes Profil oder alle Profile testen. Sendet eine leichte Anfrage an den `/models`-Endpunkt des Anbieters.
@@ -111,7 +114,7 @@ OAuth-Abonnement-Authentifizierung fuer Anbieterprofile verwalten.
 #### `auth login`
 
 ```bash
-claudex auth login <PROVIDER> [OPTIONS]
+claudex-config auth login <PROVIDER> [OPTIONS]
 ```
 
 | Option | Beschreibung |
@@ -124,41 +127,41 @@ Bei einem Anbieter ueber OAuth anmelden. Unterstuetzte Anbieter: `claude`, `open
 
 ```bash
 # Bei OpenAI anmelden (liest aus Codex CLI)
-claudex auth login openai --profile codex-sub
+claudex-config auth login openai --profile codex-sub
 
 # Bei Claude anmelden (liest aus ~/.claude)
-claudex auth login claude
+claudex-config auth login claude
 
 # Bei Google anmelden
-claudex auth login google --profile gemini-sub
+claudex-config auth login google --profile gemini-sub
 
 # Bei GitLab mit Enterprise-URL anmelden
-claudex auth login gitlab --enterprise-url https://gitlab.mycompany.com
+claudex-config auth login gitlab --enterprise-url https://gitlab.mycompany.com
 
 # Headless-Modus (kein Browser, nur Device Code)
-claudex auth login github --headless
+claudex-config auth login github --headless
 ```
 
 #### `auth status`
 
 ```bash
-claudex auth status [PROVIDER]
+claudex-config auth status [PROVIDER]
 ```
 
 Aktuellen Authentifizierungsstatus anzeigen. Ohne Anbieter-Argument wird der Status aller konfigurierten OAuth-Profile angezeigt.
 
 ```bash
 # Alle OAuth-Profile pruefen
-claudex auth status
+claudex-config auth status
 
 # Einen bestimmten Anbieter pruefen
-claudex auth status openai
+claudex-config auth status openai
 ```
 
 #### `auth refresh`
 
 ```bash
-claudex auth refresh <PROVIDER>
+claudex-config auth refresh <PROVIDER>
 ```
 
 OAuth-Token fuer einen Anbieter manuell aktualisieren. Token werden auch automatisch vom Proxy aktualisiert, wenn sie ablaufen.
@@ -166,7 +169,7 @@ OAuth-Token fuer einen Anbieter manuell aktualisieren. Token werden auch automat
 #### `auth logout`
 
 ```bash
-claudex auth logout <PROVIDER>
+claudex-config auth logout <PROVIDER>
 ```
 
 Gespeicherte OAuth-Token fuer einen Anbieter aus dem System-Schluesselbund entfernen.
@@ -178,7 +181,7 @@ Den Uebersetzungsproxy-Server verwalten.
 #### `proxy start`
 
 ```bash
-claudex proxy start [OPTIONS]
+claudex-config proxy start [OPTIONS]
 ```
 
 | Flag | Beschreibung |
@@ -189,7 +192,7 @@ claudex proxy start [OPTIONS]
 #### `proxy stop`
 
 ```bash
-claudex proxy stop
+claudex-config proxy stop
 ```
 
 Den Proxy-Daemon stoppen (sendet SIGTERM ueber PID-Datei).
@@ -197,7 +200,7 @@ Den Proxy-Daemon stoppen (sendet SIGTERM ueber PID-Datei).
 #### `proxy status`
 
 ```bash
-claudex proxy status
+claudex-config proxy status
 ```
 
 Anzeigen, ob der Proxy laeuft und auf welchem Port.
@@ -205,7 +208,7 @@ Anzeigen, ob der Proxy laeuft und auf welchem Port.
 ### `dashboard`
 
 ```bash
-claudex dashboard
+claudex-config dashboard
 ```
 
 Das TUI-Dashboard fuer Echtzeit-Ueberwachung und Schnellstart starten.
@@ -217,7 +220,7 @@ Konfigurationsdateien verwalten.
 #### `config show`
 
 ```bash
-claudex config show
+claudex-config config show
 ```
 
 Geladenen Konfigurationsdateipfad, Suchreihenfolge und aktuelle Konfigurationswerte anzeigen.
@@ -225,7 +228,7 @@ Geladenen Konfigurationsdateipfad, Suchreihenfolge und aktuelle Konfigurationswe
 #### `config path`
 
 ```bash
-claudex config path
+claudex-config config path
 ```
 
 Nur den aufgeloesten Konfigurationsdateipfad ausgeben.
@@ -233,7 +236,7 @@ Nur den aufgeloesten Konfigurationsdateipfad ausgeben.
 #### `config init`
 
 ```bash
-claudex config init
+claudex-config config init
 ```
 
 Neue Konfigurationsdatei im aktuellen Verzeichnis aus der eingebauten Vorlage erstellen.
@@ -241,7 +244,7 @@ Neue Konfigurationsdatei im aktuellen Verzeichnis aus der eingebauten Vorlage er
 #### `config recreate`
 
 ```bash
-claudex config recreate
+claudex-config config recreate
 ```
 
 Konfigurationsdatei aus `config.example.toml` neu erstellen, vorhandene Konfiguration ueberschreiben.
@@ -249,7 +252,7 @@ Konfigurationsdatei aus `config.example.toml` neu erstellen, vorhandene Konfigur
 #### `config edit`
 
 ```bash
-claudex config edit
+claudex-config config edit
 ```
 
 Konfigurationsdatei im `$EDITOR` (oder `$VISUAL`) oeffnen.
@@ -257,7 +260,7 @@ Konfigurationsdatei im `$EDITOR` (oder `$VISUAL`) oeffnen.
 #### `config validate`
 
 ```bash
-claudex config validate
+claudex-config config validate
 ```
 
 Konfigurationssyntax, Profilverweise (backup_providers, Router-Regeln) und OAuth-Anbieter-Einstellungen validieren. Gibt Fehler und Warnungen aus.
@@ -265,7 +268,7 @@ Konfigurationssyntax, Profilverweise (backup_providers, Router-Regeln) und OAuth
 #### `config get`
 
 ```bash
-claudex config get <KEY>
+claudex-config config get <KEY>
 ```
 
 Einen bestimmten Konfigurationswert nach Schluesselpfad abfragen (z.B. `proxy_port`, `profiles.0.name`).
@@ -273,7 +276,7 @@ Einen bestimmten Konfigurationswert nach Schluesselpfad abfragen (z.B. `proxy_po
 #### `config set`
 
 ```bash
-claudex config set <KEY> <VALUE>
+claudex-config config set <KEY> <VALUE>
 ```
 
 Einen bestimmten Konfigurationswert nach Schluesselpfad setzen.
@@ -281,7 +284,7 @@ Einen bestimmten Konfigurationswert nach Schluesselpfad setzen.
 #### `config export`
 
 ```bash
-claudex config export
+claudex-config config export
 ```
 
 Aktuelle zusammengefuehrte Konfiguration nach stdout im TOML-Format exportieren.
@@ -293,7 +296,7 @@ Konfigurationssets verwalten (installierbare Pakete aus Regeln, Skills und MCP-S
 #### `sets add`
 
 ```bash
-claudex sets add <PATH>
+claudex-config sets add <PATH>
 ```
 
 Ein Konfigurationsset aus einem lokalen Verzeichnis mit einer `manifest.json` (oder `manifest.yaml`) installieren.
@@ -301,7 +304,7 @@ Ein Konfigurationsset aus einem lokalen Verzeichnis mit einer `manifest.json` (o
 #### `sets remove`
 
 ```bash
-claudex sets remove <NAME>
+claudex-config sets remove <NAME>
 ```
 
 Ein installiertes Konfigurationsset nach Namen entfernen.
@@ -309,7 +312,7 @@ Ein installiertes Konfigurationsset nach Namen entfernen.
 #### `sets list`
 
 ```bash
-claudex sets list
+claudex-config sets list
 ```
 
 Alle installierten Konfigurationssets mit Version, Beschreibung und Komponentenuebersicht auflisten.
@@ -317,7 +320,7 @@ Alle installierten Konfigurationssets mit Version, Beschreibung und Komponentenu
 #### `sets update`
 
 ```bash
-claudex sets update <NAME> <PATH>
+claudex-config sets update <NAME> <PATH>
 ```
 
 Ein vorhandenes Konfigurationsset aus einem neuen Manifest-Pfad aktualisieren.
@@ -325,7 +328,7 @@ Ein vorhandenes Konfigurationsset aus einem neuen Manifest-Pfad aktualisieren.
 #### `sets show`
 
 ```bash
-claudex sets show <NAME>
+claudex-config sets show <NAME>
 ```
 
 Detaillierte Informationen ueber ein installiertes Konfigurationsset einschliesslich aller Komponenten anzeigen.
@@ -333,7 +336,7 @@ Detaillierte Informationen ueber ein installiertes Konfigurationsset einschliess
 ### `update`
 
 ```bash
-claudex update [OPTIONS]
+claudex-config update [OPTIONS]
 ```
 
 | Flag | Beschreibung |

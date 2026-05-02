@@ -43,7 +43,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Uzywaj istniejacych subskrypcji Claude, ChatGPT, Google, Qwen, Kimi, GitHub Copilot lub GitLab Duo. Obsluga browser PKCE, device code flow i lancucha powiadczen z natywnych CLI.
   </Card>
   <Card title="Zestawy konfiguracji" icon="setting">
-    Instaluj i zarzadzaj pakietami regul CLAUDE.md, umiejetnosci i serwerow MCP za pomoca `claudex sets add`. Wersjonowane manifesty z wykrywaniem konfliktow.
+    Instaluj i zarzadzaj pakietami regul CLAUDE.md, umiejetnosci i serwerow MCP za pomoca `claudex-config sets add`. Wersjonowane manifesty z wykrywaniem konfliktow.
   </Card>
   <Card title="Hiperlinki terminala" icon="external">
     Klikalne hiperlinki OSC 8 w wyjsciu terminala. Automatyczne wykrywanie obslugi terminala (iTerm, WezTerm, Kitty, Ghostty, VS Code, Windows Terminal) z trybem proxy PTY.
@@ -52,7 +52,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Mapuj przelacznik `/model` Claude Code (haiku, sonnet, opus) na dowolny model dostawcy za pomoca `[profiles.models]`. Konfiguracja modeli per profil z nadpisywaniem przez zmienne srodowiskowe.
   </Card>
   <Card title="Tryb nieinteraktywny" icon="rocket">
-    Jednorazowe wykonanie za pomoca `claudex run <profile> "prompt" --print`. Idealny do potokow CI/CD i skryptowej automatyzacji.
+    Jednorazowe wykonanie za pomoca `CLAUDEX_PROFILE=<profile> claudex "prompt" --print`. Idealny do potokow CI/CD i skryptowej automatyzacji.
   </Card>
   <Card title="Kompatybilnosc nazw narzedzi" icon="list-format">
     Automatyczne skracanie nazw narzedzi dluzszych niz 64 znaki dla zgodnosci z OpenAI, z transparentnym przywracaniem oryginalnych nazw w odpowiedziach.
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | ba
 ## Jak to dziala
 
 ```
-claudex run grok
+CLAUDEX_PROFILE=grok claudex
     │
     ├── Start proxy → 127.0.0.1:13456
     │

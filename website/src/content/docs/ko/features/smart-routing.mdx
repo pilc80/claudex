@@ -5,11 +5,11 @@ description: 의도 기반 자동 프로바이더 라우팅
 
 import { Aside } from '@astrojs/starlight/components';
 
-스마트 라우팅은 의도 분류에 따라 각 요청에 최적의 프로바이더를 자동으로 선택합니다. `claudex run auto`로 활성화하세요.
+스마트 라우팅은 의도 분류에 따라 각 요청에 최적의 프로바이더를 자동으로 선택합니다. `CLAUDEX_PROFILE=auto claudex`로 활성화하세요.
 
 ## 작동 방식
 
-1. 사용자가 `claudex run auto` 실행
+1. 사용자가 `CLAUDEX_PROFILE=auto claudex` 실행
 2. Claude Code가 프록시에 요청 전송
 3. 프록시가 사용자 메시지를 추출하여 로컬 분류기(예: Ollama)에 전송
 4. 분류기가 의도 카테고리 반환 (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # 미분류 폴백
 
 ```bash
 # 스마트 라우팅으로 실행
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # 자동 라우팅 중에도 모델 오버라이드
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```

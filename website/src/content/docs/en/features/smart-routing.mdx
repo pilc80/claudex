@@ -5,11 +5,11 @@ description: Intent-based automatic provider routing
 
 import { Aside } from '@astrojs/starlight/components';
 
-Smart routing automatically selects the best provider for each request based on intent classification. Use `claudex run auto` to activate it.
+Smart routing automatically selects the best provider for each request based on intent classification. Use `CLAUDEX_PROFILE=auto claudex` to activate it.
 
 ## How It Works
 
-1. User runs `claudex run auto`
+1. User runs `CLAUDEX_PROFILE=auto claudex`
 2. Claude Code sends a request to the proxy
 3. The proxy extracts the user's message and sends it to a local classifier (e.g., Ollama)
 4. The classifier returns an intent category (code, analysis, creative, search, math)
@@ -51,8 +51,8 @@ default = "grok"        # fallback for unclassified
 
 ```bash
 # Run with smart routing
-claudex run auto
+CLAUDEX_PROFILE=auto claudex
 
 # Override model even with auto-routing
-claudex run auto -m grok-3-mini-beta
+CLAUDEX_PROFILE=auto CLAUDEX_MODEL=grok-3-mini-beta claudex
 ```
