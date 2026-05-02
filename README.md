@@ -29,8 +29,9 @@ Claude Code
 
 ## Feature Status
 
-Legend: `✅` works well, `⚠️` is not fully confirmed, and `❌` has known
-issues or is intentionally unsupported.
+Legend: `✅` works well, `☑️` is verified working with external/version drift
+risk, `⚠️` is not fully confirmed, and `❌` has known issues or is
+intentionally unsupported.
 
 - ✅ Anthropic Messages -> OpenAI Responses request conversion.
 - ✅ Responses -> Anthropic response and SSE stream conversion.
@@ -45,9 +46,9 @@ issues or is intentionally unsupported.
 - ✅ Upstream `429` retry with capped `Retry-After` delay.
 - ✅ Responses stream hardening for failure/rate-limit events.
 - ✅ `/v1/models` exposes Claude model slots without duplicates.
-- ✅ Claude Code `WebFetch` works when model slots avoid unsupported mini models.
+- ☑️ Claude Code `WebFetch` works when model slots avoid unsupported mini models.
 - ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
-- ⚠️ Claude Code visible `Web Search` can run as a client-side tool, but
+- ☑️ Claude Code visible `Web Search` can run as a client-side tool, but
   hosted Anthropic `web_search_20250305` is not implemented proxy-side.
 - ❌ `gpt-5.5-mini` is rejected by this ChatGPT/Codex account.
 - ❌ Raw Anthropic requests without `system`/instructions are rejected by Codex.
