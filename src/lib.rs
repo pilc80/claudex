@@ -15,9 +15,11 @@ mod tui;
 mod update;
 mod util;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::ffi::OsStr;
+use std::net::TcpListener;
+use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -82,11 +84,7 @@ async fn run_launcher() -> Result<()> {
 
     init_logging(&config, true);
 
-    if !process::daemon::is_proxy_running()? {
-        tracing::info!("proxy not running, starting in background...");
-        start_proxy_background(&config).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
+    ensure_launcher_proxy(&mut config).await?;
 
     let profile_name =
         resolve_launcher_profile_name(&config, std::env::var("CLAUDEX_PROFILE").ok().as_deref())?;
@@ -168,13 +166,7 @@ async fn run_config_cli() -> Result<()> {
             hyperlinks,
             args,
         }) => {
-            // Ensure proxy is running
-            if !process::daemon::is_proxy_running()? {
-                tracing::info!("proxy not running, starting in background...");
-                start_proxy_background(&config).await?;
-                // Brief wait for proxy to be ready
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
+            ensure_launcher_proxy(&mut config).await?;
 
             let profile = config
                 .find_profile(&profile_name)
@@ -389,6 +381,81 @@ async fn start_proxy_background(config: &ClaudexConfig) -> Result<()> {
     anyhow::bail!("proxy failed to start within 2 seconds")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyHealth {
+    Current,
+    StaleOrUnknown,
+    Unreachable,
+}
+
+async fn ensure_launcher_proxy(config: &mut ClaudexConfig) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(800))
+        .build()?;
+    let health = probe_proxy_health(&client, &config.proxy_host, config.proxy_port).await;
+
+    if health == ProxyHealth::Current {
+        return Ok(());
+    }
+
+    if health == ProxyHealth::StaleOrUnknown {
+        let previous_port = config.proxy_port;
+        config.proxy_port = find_available_local_port(&config.proxy_host)?;
+        tracing::warn!(
+            previous_port,
+            new_port = config.proxy_port,
+            "existing proxy is stale or missing health metadata; starting private proxy for this session"
+        );
+    } else if process::daemon::is_proxy_running()? {
+        tracing::warn!(
+            port = config.proxy_port,
+            "proxy PID exists but configured health endpoint is unreachable; starting proxy on configured port"
+        );
+    } else {
+        tracing::info!("proxy not running, starting in background...");
+    }
+
+    start_proxy_background(config).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    Ok(())
+}
+
+async fn probe_proxy_health(client: &reqwest::Client, host: &str, port: u16) -> ProxyHealth {
+    let health_url = format!("http://{host}:{port}/health");
+    match client.get(&health_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let headers = resp.headers();
+            if is_current_proxy_health(
+                headers
+                    .get(proxy::HEALTH_VERSION_HEADER)
+                    .and_then(|v| v.to_str().ok()),
+                headers
+                    .get(proxy::HEALTH_BODY_LIMIT_HEADER)
+                    .and_then(|v| v.to_str().ok()),
+            ) {
+                ProxyHealth::Current
+            } else {
+                ProxyHealth::StaleOrUnknown
+            }
+        }
+        Ok(_) => ProxyHealth::StaleOrUnknown,
+        Err(_) => ProxyHealth::Unreachable,
+    }
+}
+
+fn is_current_proxy_health(version: Option<&str>, body_limit: Option<&str>) -> bool {
+    version == Some(env!("CARGO_PKG_VERSION"))
+        && body_limit
+            .and_then(|value| value.parse::<usize>().ok())
+            .is_some_and(|limit| limit >= proxy::REQUEST_BODY_LIMIT_BYTES)
+}
+
+fn find_available_local_port(host: &str) -> Result<u16> {
+    let listener = TcpListener::bind((host, 0))
+        .with_context(|| format!("failed to bind an ephemeral proxy port on {host}"))?;
+    Ok(listener.local_addr()?.port())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,5 +525,26 @@ mod tests {
             hyperlinks_from_env(Some("auto")).unwrap(),
             Some(HyperlinksConfig::Auto)
         );
+    }
+
+    #[test]
+    fn proxy_health_requires_current_version_and_body_limit() {
+        assert!(is_current_proxy_health(
+            Some(env!("CARGO_PKG_VERSION")),
+            Some(&proxy::REQUEST_BODY_LIMIT_BYTES.to_string())
+        ));
+        assert!(is_current_proxy_health(
+            Some(env!("CARGO_PKG_VERSION")),
+            Some(&(proxy::REQUEST_BODY_LIMIT_BYTES + 1).to_string())
+        ));
+        assert!(!is_current_proxy_health(None, None));
+        assert!(!is_current_proxy_health(
+            Some("0.0.0"),
+            Some(&proxy::REQUEST_BODY_LIMIT_BYTES.to_string())
+        ));
+        assert!(!is_current_proxy_health(
+            Some(env!("CARGO_PKG_VERSION")),
+            Some("2097152")
+        ));
     }
 }

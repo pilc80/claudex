@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::extract::DefaultBodyLimit;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::sync::RwLock;
@@ -32,6 +34,11 @@ pub struct ProxyState {
     pub rag_index: Option<RagIndex>,
     pub token_manager: crate::oauth::manager::TokenManager,
 }
+
+pub const REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+pub const REQUEST_BODY_LIMIT_BYTES_STR: &str = "33554432";
+pub const HEALTH_VERSION_HEADER: &str = "x-claudex-version";
+pub const HEALTH_BODY_LIMIT_HEADER: &str = "x-claudex-body-limit";
 
 /// 获取 proxy 日志文件路径（~/.cache/claudex/proxy-{timestamp}-{pid}.log）
 /// 每次启动生成独立日志文件，支持多实例并行
@@ -94,8 +101,8 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
             "/proxy/{profile}/v1/messages",
             post(handler::handle_messages),
         )
-        .route("/health", get(|| async { "ok" }))
-        .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
+        .route("/health", get(health_handler))
+        .layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT_BYTES))
         .with_state(state);
 
     let bind_addr = format!("{host}:{port}");
@@ -109,4 +116,17 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
 
     crate::process::daemon::remove_pid()?;
     Ok(())
+}
+
+async fn health_handler() -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HEALTH_VERSION_HEADER,
+        HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+    );
+    headers.insert(
+        HEALTH_BODY_LIMIT_HEADER,
+        HeaderValue::from_static(REQUEST_BODY_LIMIT_BYTES_STR),
+    );
+    (headers, "ok")
 }
