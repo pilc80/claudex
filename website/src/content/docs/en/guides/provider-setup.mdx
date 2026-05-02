@@ -377,14 +377,14 @@ Then configure Claudex:
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 
 [profiles.models]
-haiku = "codex-mini-latest"
-sonnet = "gpt-5.3-codex"
-opus = "gpt-5.3-codex"
+haiku = "gpt-5.5"
+sonnet = "gpt-5.5"
+opus = "gpt-5.5"
 ```
 
 ```bash
@@ -399,7 +399,7 @@ claudex run codex-sub
 ```
 
 <Aside type="tip">
-  Supported models on the Codex endpoint: `gpt-5.3-codex`, `gpt-5.1-codex`, `codex-mini-latest`. Note that `gpt-4o` is NOT supported on the `chatgpt.com` Codex endpoint. `strip_params = "auto"` will automatically detect this endpoint and strip `temperature`/`top_p`/`top_k`.
+  Model availability depends on your ChatGPT/Codex account. Start with `gpt-5.5` for all Claude model slots, then change aliases only after the endpoint accepts them. Note that `gpt-4o` is NOT supported on the `chatgpt.com` Codex endpoint. `strip_params = "auto"` will automatically detect this endpoint and strip `temperature`/`top_p`/`top_k`.
 </Aside>
 
 ### Google Gemini

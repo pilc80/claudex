@@ -153,22 +153,28 @@ oauth_provider = "claude"
 enabled = false
 
 # ChatGPT Plus/Pro / Codex subscription (via OpenAI OAuth → Responses API)
-# Supported models: gpt-5.3-codex, gpt-5.1-codex, codex-mini-latest
+# Supported models depend on your ChatGPT/Codex account. Start with gpt-5.5.
 # Note: gpt-4o is NOT supported on the Codex ChatGPT endpoint
 # strip_params = "auto" will auto-detect chatgpt.com and strip temperature/top_p/top_k
 [[profiles]]
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 # Optional: route current-turn image requests to a cheaper/faster model.
-# image_model = "gpt-5.5-mini"
+# Keep this unset unless your account accepts the image model.
+# image_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 enabled = false
 # ChatGPT-Account-ID is auto-extracted from Codex CLI's auth.json
 # Or set manually: [profiles.custom_headers]
 # ChatGPT-Account-ID = "your-account-id"
+
+[profiles.models]
+haiku = "gpt-5.5"
+sonnet = "gpt-5.5"
+opus = "gpt-5.5"
 
 # Gemini Pro (via Google OAuth)
 [[profiles]]

@@ -10,23 +10,23 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 <Tabs>
   <TabItem label="One-liner" icon="terminal">
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
     El script de instalacion detecta automaticamente tu sistema operativo y arquitectura, descarga la ultima version desde GitHub e instala en `~/.local/bin/claudex`.
 
     Cambiar el directorio de instalacion:
     ```bash
-    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
   </TabItem>
   <TabItem label="Cargo" icon="seti:rust">
     ```bash
-    cargo install --git https://github.com/StringKe/claudex
+    cargo install --git https://github.com/pilc80/claudex
     ```
     Requiere el toolchain de Rust. El binario se instalara en `~/.cargo/bin/claudex`.
   </TabItem>
   <TabItem label="GitHub Releases" icon="github">
-    Descarga el binario precompilado para tu plataforma desde [GitHub Releases](https://github.com/StringKe/claudex/releases).
+    Descarga el binario precompilado para tu plataforma desde [GitHub Releases](https://github.com/pilc80/claudex/releases).
 
     Targets disponibles:
     - `x86_64-unknown-linux-gnu`

@@ -431,7 +431,7 @@ impl ClaudexConfig {
 
         let minimal = r#"# Claudex Configuration
 # See config.example.toml for full reference:
-#   https://github.com/StringKe/claudex/blob/main/config.example.toml
+#   https://github.com/pilc80/claudex/blob/main/config.example.toml
 
 proxy_port = 13456
 proxy_host = "127.0.0.1"
@@ -467,7 +467,7 @@ enabled = false
         std::fs::write(&path, minimal)?;
         println!("Created default config at: {}", path.display());
         println!("Edit it to add your API keys and profiles.");
-        println!("Full example: https://github.com/StringKe/claudex/blob/main/config.example.toml");
+        println!("Full example: https://github.com/pilc80/claudex/blob/main/config.example.toml");
 
         let figment = Figment::from(Serialized::defaults(ClaudexConfig::default()))
             .merge(figment::providers::Toml::string(minimal));

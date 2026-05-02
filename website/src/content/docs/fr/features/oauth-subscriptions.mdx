@@ -16,7 +16,7 @@ Au lieu de fournir une `api_key`, vous configurez `auth_type = "oauth"` et speci
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 ```
@@ -188,7 +188,7 @@ Quand vous creez un profil avec `auth_type = "oauth"`, chaque fournisseur dispos
 | Fournisseur | base_url par defaut | provider_type par defaut | Modele par defaut |
 |-------------|--------------------|--------------------------|--------------------|
 | Claude | `https://api.claude.ai` | DirectAnthropic | `claude-sonnet-4-20250514` |
-| ChatGPT | `https://chatgpt.com/backend-api/codex` | OpenAIResponses | `gpt-5.3-codex` |
+| ChatGPT | `https://chatgpt.com/backend-api/codex` | OpenAIResponses | `gpt-5.5` |
 | GitHub | `https://api.githubcopilot.com` | OpenAICompatible | `gpt-4o` |
 | GitLab | `https://gitlab.com/api/v4/ai/llm/proxy` | OpenAICompatible | `claude-sonnet-4-20250514` |
 | Google | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAICompatible | `gemini-2.5-pro` |

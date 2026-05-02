@@ -28,11 +28,11 @@ fn provider_defaults(provider: &OAuthProvider) -> ProviderDefaults {
         OAuthProvider::Chatgpt | OAuthProvider::Openai => ProviderDefaults {
             provider_type: ProviderType::OpenAIResponses,
             base_url: "https://chatgpt.com/backend-api/codex",
-            default_model: "gpt-5.3-codex",
+            default_model: "gpt-5.5",
             models: ProfileModels {
-                haiku: Some("gpt-5.3-codex".to_string()),
-                sonnet: Some("gpt-5.3-codex".to_string()),
-                opus: Some("gpt-5.3-codex".to_string()),
+                haiku: Some("gpt-5.5".to_string()),
+                sonnet: Some("gpt-5.5".to_string()),
+                opus: Some("gpt-5.5".to_string()),
             },
             max_tokens: None,
         },
@@ -808,7 +808,7 @@ mod tests {
     fn test_provider_defaults_openai() {
         let defaults = provider_defaults(&OAuthProvider::Openai);
         assert_eq!(defaults.base_url, "https://chatgpt.com/backend-api/codex");
-        assert_eq!(defaults.default_model, "gpt-5.3-codex");
+        assert_eq!(defaults.default_model, "gpt-5.5");
         assert!(matches!(
             defaults.provider_type,
             ProviderType::OpenAIResponses

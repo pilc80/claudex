@@ -377,14 +377,14 @@ Claudex 설정:
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 
 [profiles.models]
-haiku = "codex-mini-latest"
-sonnet = "gpt-5.3-codex"
-opus = "gpt-5.3-codex"
+haiku = "gpt-5.5"
+sonnet = "gpt-5.5"
+opus = "gpt-5.5"
 ```
 
 ```bash
@@ -399,7 +399,7 @@ claudex run codex-sub
 ```
 
 <Aside type="tip">
-  Codex 엔드포인트에서 지원되는 모델: `gpt-5.3-codex`, `gpt-5.1-codex`, `codex-mini-latest`. `gpt-4o`는 `chatgpt.com` Codex 엔드포인트에서 지원되지 않습니다. `strip_params = "auto"`가 이 엔드포인트를 자동 감지하여 `temperature`/`top_p`/`top_k`를 제거합니다.
+  Codex 엔드포인트에서 지원되는 모델: `gpt-5.5`. `gpt-4o`는 `chatgpt.com` Codex 엔드포인트에서 지원되지 않습니다. `strip_params = "auto"`가 이 엔드포인트를 자동 감지하여 `temperature`/`top_p`/`top_k`를 제거합니다.
 </Aside>
 
 ### Google Gemini

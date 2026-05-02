@@ -38,7 +38,7 @@ const en: MarketplaceStrings = {
   installProject: 'Project',
   submitTitle: 'Submit Your Set',
   submitDescription:
-    'Create a <code>.claudex-sets.json</code> in your repo (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), then submit a PR to <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> adding your entry to <code>sets.json</code>.',
+    'Create a <code>.claudex-sets.json</code> in your repo (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), then submit a PR to <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> adding your entry to <code>sets.json</code>.',
   copyTooltip: 'Copy',
   rules: (n) => `${n} rules`,
   skills: (n) => `${n} skills`,
@@ -53,7 +53,7 @@ const zhCN: MarketplaceStrings = {
   installProject: 'Project',
   submitTitle: '提交你的配置集',
   submitDescription:
-    '在你的仓库根目录创建 <code>.claudex-sets.json</code>（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>），然后向 <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> 提交 PR，将你的条目添加到 <code>sets.json</code>。',
+    '在你的仓库根目录创建 <code>.claudex-sets.json</code>（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>），然后向 <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> 提交 PR，将你的条目添加到 <code>sets.json</code>。',
   copyTooltip: '复制',
   rules: (n) => `${n} 条规则`,
   skills: (n) => `${n} 个技能`,
@@ -68,7 +68,7 @@ const zhTW: MarketplaceStrings = {
   installProject: 'Project',
   submitTitle: '提交你的配置集',
   submitDescription:
-    '在你的儲存庫根目錄建立 <code>.claudex-sets.json</code>（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>），然後向 <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> 提交 PR，將你的條目加入 <code>sets.json</code>。',
+    '在你的儲存庫根目錄建立 <code>.claudex-sets.json</code>（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>），然後向 <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> 提交 PR，將你的條目加入 <code>sets.json</code>。',
   copyTooltip: '複製',
   rules: (n) => `${n} 條規則`,
   skills: (n) => `${n} 個技能`,
@@ -83,7 +83,7 @@ const ja: MarketplaceStrings = {
   installProject: 'プロジェクト',
   submitTitle: 'セットを投稿する',
   submitDescription:
-    'リポジトリに <code>.claudex-sets.json</code> を作成し（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>）、<a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> に PR を送信して <code>sets.json</code> にエントリを追加してください。',
+    'リポジトリに <code>.claudex-sets.json</code> を作成し（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>）、<a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> に PR を送信して <code>sets.json</code> にエントリを追加してください。',
   copyTooltip: 'コピー',
   rules: (n) => `${n} ルール`,
   skills: (n) => `${n} スキル`,
@@ -98,7 +98,7 @@ const ko: MarketplaceStrings = {
   installProject: '프로젝트',
   submitTitle: '세트 제출하기',
   submitDescription:
-    '리포지토리에 <code>.claudex-sets.json</code>을 만들고（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>）, <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a>에 PR을 제출하여 <code>sets.json</code>에 항목을 추가하세요.',
+    '리포지토리에 <code>.claudex-sets.json</code>을 만들고（<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>）, <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a>에 PR을 제출하여 <code>sets.json</code>에 항목을 추가하세요.',
   copyTooltip: '복사',
   rules: (n) => `${n}개 규칙`,
   skills: (n) => `${n}개 스킬`,
@@ -113,7 +113,7 @@ const ru: MarketplaceStrings = {
   installProject: 'Проект',
   submitTitle: 'Отправить свой набор',
   submitDescription:
-    'Создайте <code>.claudex-sets.json</code> в вашем репозитории (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), затем отправьте PR в <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a>, добавив запись в <code>sets.json</code>.',
+    'Создайте <code>.claudex-sets.json</code> в вашем репозитории (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), затем отправьте PR в <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a>, добавив запись в <code>sets.json</code>.',
   copyTooltip: 'Копировать',
   rules: (n) => `${n} правил`,
   skills: (n) => `${n} навыков`,
@@ -128,7 +128,7 @@ const fr: MarketplaceStrings = {
   installProject: 'Projet',
   submitTitle: 'Soumettre votre set',
   submitDescription:
-    'Creez un <code>.claudex-sets.json</code> dans votre depot (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), puis soumettez une PR a <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> en ajoutant votre entree dans <code>sets.json</code>.',
+    'Creez un <code>.claudex-sets.json</code> dans votre depot (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), puis soumettez une PR a <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> en ajoutant votre entree dans <code>sets.json</code>.',
   copyTooltip: 'Copier',
   rules: (n) => `${n} regles`,
   skills: (n) => `${n} competences`,
@@ -143,7 +143,7 @@ const ptBR: MarketplaceStrings = {
   installProject: 'Projeto',
   submitTitle: 'Envie seu set',
   submitDescription:
-    'Crie um <code>.claudex-sets.json</code> no seu repositorio (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), depois envie um PR para <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> adicionando sua entrada ao <code>sets.json</code>.',
+    'Crie um <code>.claudex-sets.json</code> no seu repositorio (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), depois envie um PR para <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> adicionando sua entrada ao <code>sets.json</code>.',
   copyTooltip: 'Copiar',
   rules: (n) => `${n} regras`,
   skills: (n) => `${n} habilidades`,
@@ -158,7 +158,7 @@ const es: MarketplaceStrings = {
   installProject: 'Proyecto',
   submitTitle: 'Enviar tu set',
   submitDescription:
-    'Crea un <code>.claudex-sets.json</code> en tu repositorio (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), luego envia un PR a <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> agregando tu entrada a <code>sets.json</code>.',
+    'Crea un <code>.claudex-sets.json</code> en tu repositorio (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), luego envia un PR a <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> agregando tu entrada a <code>sets.json</code>.',
   copyTooltip: 'Copiar',
   rules: (n) => `${n} reglas`,
   skills: (n) => `${n} habilidades`,
@@ -173,7 +173,7 @@ const it: MarketplaceStrings = {
   installProject: 'Progetto',
   submitTitle: 'Invia il tuo set',
   submitDescription:
-    'Crea un <code>.claudex-sets.json</code> nel tuo repository (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), poi invia una PR a <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> aggiungendo la tua voce a <code>sets.json</code>.',
+    'Crea un <code>.claudex-sets.json</code> nel tuo repository (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), poi invia una PR a <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> aggiungendo la tua voce a <code>sets.json</code>.',
   copyTooltip: 'Copia',
   rules: (n) => `${n} regole`,
   skills: (n) => `${n} competenze`,
@@ -188,7 +188,7 @@ const de: MarketplaceStrings = {
   installProject: 'Projekt',
   submitTitle: 'Set einreichen',
   submitDescription:
-    'Erstelle eine <code>.claudex-sets.json</code> in deinem Repository (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">Schema</a>), dann sende einen PR an <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> und fuge deinen Eintrag zu <code>sets.json</code> hinzu.',
+    'Erstelle eine <code>.claudex-sets.json</code> in deinem Repository (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">Schema</a>), dann sende einen PR an <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> und fuge deinen Eintrag zu <code>sets.json</code> hinzu.',
   copyTooltip: 'Kopieren',
   rules: (n) => `${n} Regeln`,
   skills: (n) => `${n} Skills`,
@@ -203,7 +203,7 @@ const pl: MarketplaceStrings = {
   installProject: 'Projekt',
   submitTitle: 'Zglos swoj zestaw',
   submitDescription:
-    'Utworz <code>.claudex-sets.json</code> w swoim repozytorium (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), nastepnie wyslij PR do <a href="https://github.com/StringKe/claudex" target="_blank" rel="noopener">claudex</a> dodajac swoj wpis do <code>sets.json</code>.',
+    'Utworz <code>.claudex-sets.json</code> w swoim repozytorium (<a href="https://claudex.space/schemas/sets/v1.json" target="_blank" rel="noopener">schema</a>), nastepnie wyslij PR do <a href="https://github.com/pilc80/claudex" target="_blank" rel="noopener">claudex</a> dodajac swoj wpis do <code>sets.json</code>.',
   copyTooltip: 'Kopiuj',
   rules: (n) => `${n} regul`,
   skills: (n) => `${n} umiejetnosci`,

@@ -12,7 +12,7 @@ provider list, smart routing, config discovery, and non-Codex providers:
 This README documents only the fork-specific Codex/OpenAI Responses work and
 local setup details.
 
-## What This Fork Changes
+## Supported Features
 
 The main path improved here is:
 
@@ -23,7 +23,7 @@ Claude Code
   -> ChatGPT/Codex Responses endpoint
 ```
 
-Fork fixes and additions:
+Supported in this fork:
 
 - Better Anthropic Messages -> OpenAI Responses request conversion.
 - Better Responses -> Anthropic response and SSE stream conversion.
@@ -40,29 +40,60 @@ Fork fixes and additions:
 - Responses stream hardening for upstream failure/rate-limit events.
 - `/v1/models` exposes configured Claude model slots without duplicates.
 
-## Known Limits
+## Risky / Partial Features
 
 - Codex hidden reasoning output is not displayed as Claude thinking.
 - Anthropic-hosted server tools are not implemented proxy-side.
 - Web/search/fetch behavior depends on Claude Code tools and upstream support.
 - The ChatGPT/Codex backend may reject some model names for your account.
 - Already-running proxy processes keep their old binary after symlink changes.
+- `gpt-5.5-mini` can be useful for haiku, but do not set it by default until
+  your ChatGPT/Codex endpoint accepts it.
 
 If a model alias returns `400 model is not supported`, map that Claude slot to a
 model accepted by your ChatGPT/Codex account.
 
 ## Install
 
-There is an `install.sh`, but in this fork it still targets upstream releases:
+Release installer:
 
-```sh
-REPO="StringKe/claudex"
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex
 ```
 
-So there is no correct fork one-liner installer until this fork publishes its
-own release assets and changes the installer repo.
+It downloads release assets from `pilc80/claudex`. If no matching release asset
+exists for your platform, the Unix installer can fall back to `cargo install`.
+The installers can also stop an old running proxy and optionally run ChatGPT/Codex
+OAuth setup. Release archives are verified against their `.sha256` files before
+installation.
 
-For now, install from source:
+Safer Windows flow:
+
+```powershell
+irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 -OutFile install.ps1
+notepad .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Useful installer options:
+
+```bash
+# macOS / Linux
+sh install.sh --dry-run
+sh install.sh --yes --no-setup
+sh install.sh --install-dir "$HOME/.local/bin"
+
+# Windows PowerShell
+.\install.ps1 -DryRun
+.\install.ps1 -Yes -NoSetup
+.\install.ps1 -InstallDir "$HOME\.local\bin"
+```
+
+Source install:
 
 ```bash
 cargo install --git https://github.com/pilc80/claudex
@@ -94,20 +125,22 @@ Create or edit a profile like this:
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 enabled = true
 
-# Optional: route only current-turn image requests to another model.
-# Use only a model accepted by your ChatGPT/Codex account.
-# image_model = "gpt-5.3-codex"
+# Optional: route only current-turn image requests to another accepted model.
+# Keep unset unless your account accepts that model.
+# image_model = "gpt-5.5"
 
 [profiles.models]
-haiku = "gpt-5.3-codex"
-sonnet = "gpt-5.3-codex"
-opus = "gpt-5.3-codex"
+haiku = "gpt-5.5"
+sonnet = "gpt-5.5"
+opus = "gpt-5.5"
 ```
+
+Keep `haiku = "gpt-5.5"` unless your account accepts `gpt-5.5-mini`.
 
 Login and run:
 
@@ -151,6 +184,22 @@ claudex run codex-sub
 
 Changing the symlink does not update already-running processes. If an old proxy
 is alive, `claudex run` may reuse it instead of starting the new binary.
+
+## Release Integrity
+
+Each release should publish:
+
+```text
+claudex-<version>-<target>.tar.gz
+claudex-<version>-<target>.tar.gz.sha256
+claudex-<version>-x86_64-pc-windows-msvc.zip
+claudex-<version>-x86_64-pc-windows-msvc.zip.sha256
+claudex-release-manifest.json
+```
+
+The release workflow also emits GitHub artifact attestations for release
+archives and the manifest. Use GitHub CLI attestation verification for provenance
+checks when needed.
 
 ## Tests
 

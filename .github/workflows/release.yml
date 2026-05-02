@@ -5,12 +5,14 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -37,6 +39,11 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs: create-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +65,9 @@ jobs:
             cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
             cross: false
 
     runs-on: ${{ matrix.os }}
@@ -93,20 +103,96 @@ jobs:
       - name: Package
         env:
           TAG: ${{ needs.create-release.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../claudex-${TAG}-${{ matrix.target }}.tar.gz claudex
+          cd target/${TARGET}/release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path claudex.exe -DestinationPath '../../../claudex-${TAG}-${TARGET}.zip' -Force"
+            cd ../../..
+            powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 'claudex-${TAG}-${TARGET}.zip').Hash.ToLower() + '  claudex-${TAG}-${TARGET}.zip' | Set-Content -NoNewline 'claudex-${TAG}-${TARGET}.zip.sha256'"
+          else
+            tar czf ../../../claudex-${TAG}-${TARGET}.tar.gz claudex
+            cd ../../..
+            shasum -a 256 "claudex-${TAG}-${TARGET}.tar.gz" > "claudex-${TAG}-${TARGET}.tar.gz.sha256"
+          fi
+
+      - name: Attest artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: claudex-${{ needs.create-release.outputs.tag }}-${{ matrix.target }}.*
 
       - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.create-release.outputs.tag }}
-        run: gh release upload "$TAG" claudex-${TAG}-${{ matrix.target }}.tar.gz
+        shell: bash
+        run: gh release upload "$TAG" claudex-${TAG}-${{ matrix.target }}.*
+
+  manifest:
+    name: Publish release manifest
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Build manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$REPO" --pattern '*.sha256'
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          artifacts = []
+          for checksum_path in sorted(Path(".").glob("*.sha256")):
+              line = checksum_path.read_text().strip()
+              sha256, name = line.split(None, 1)
+              name = name.strip().lstrip("*")
+              prefix = f"claudex-{tag}-"
+              target = name[len(prefix):]
+              for suffix in (".tar.gz", ".zip"):
+                  if target.endswith(suffix):
+                      target = target[: -len(suffix)]
+              artifacts.append({
+                  "target": target,
+                  "name": name,
+                  "sha256": sha256,
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{name}",
+              })
+
+          Path("claudex-release-manifest.json").write_text(
+              json.dumps({"version": tag, "artifacts": artifacts}, indent=2) + "\n"
+          )
+          PY
+
+      - name: Attest manifest
+        uses: actions/attest@v4
+        with:
+          subject-path: claudex-release-manifest.json
+
+      - name: Upload manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+        run: gh release upload "$TAG" claudex-release-manifest.json
 
   publish-release:
     name: Publish Release
-    needs: [create-release, build]
+    needs: [create-release, build, manifest]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Publish release

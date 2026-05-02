@@ -1,21 +1,148 @@
 #!/bin/sh
-# Claudex installer - works on bash, zsh, sh, dash
-# Supports: macOS (Intel/Apple Silicon), Linux (x86_64/aarch64), Ubuntu, CentOS, Alpine
-set -e
+# Claudex installer for macOS and Linux.
+# Windows users should use install.ps1 from PowerShell.
+set -eu
 
-REPO="StringKe/claudex"
+REPO="${CLAUDEX_REPO:-pilc80/claudex}"
 INSTALL_DIR="${CLAUDEX_INSTALL_DIR:-$HOME/.local/bin}"
+PROFILE_NAME="${CLAUDEX_PROFILE:-codex-sub}"
+INSTALLED_BIN=""
+ASSUME_YES="${CLAUDEX_ASSUME_YES:-}"
+SKIP_SETUP="${CLAUDEX_SKIP_SETUP:-}"
+DRY_RUN="${CLAUDEX_DRY_RUN:-}"
+ALLOW_SOURCE_FALLBACK="${CLAUDEX_SOURCE_FALLBACK:-1}"
 
-# Detect OS and architecture
+say() {
+    printf '%s\n' "$*"
+}
+
+err() {
+    printf 'Error: %s\n' "$*" >&2
+}
+
+has_cmd() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+is_yes() {
+    case "${1:-}" in
+        y|Y|yes|YES|Yes|true|TRUE|1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+prompt_yes_no() {
+    prompt="$1"
+    default="${2:-n}"
+
+    if is_yes "$ASSUME_YES"; then
+        return 0
+    fi
+
+    if [ ! -t 0 ]; then
+        [ "$default" = "y" ]
+        return
+    fi
+
+    if [ "$default" = "y" ]; then
+        suffix="[Y/n]"
+    else
+        suffix="[y/N]"
+    fi
+
+    printf '%s %s ' "$prompt" "$suffix"
+    read -r answer || answer=""
+    if [ -z "$answer" ]; then
+        answer="$default"
+    fi
+    is_yes "$answer"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: install.sh [options]
+
+Options:
+  --install-dir DIR      Install directory (default: ~/.local/bin)
+  --repo OWNER/REPO      GitHub repository (default: pilc80/claudex)
+  --profile NAME        Setup profile name (default: codex-sub)
+  --yes                 Accept installer prompts
+  --no-setup            Skip ChatGPT/Codex setup prompts
+  --no-source-fallback  Do not fall back to cargo install
+  --dry-run             Print actions without installing
+  -h, --help            Show this help
+EOF
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --install-dir)
+                [ "$#" -ge 2 ] || { err "--install-dir requires a value"; exit 2; }
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --repo)
+                [ "$#" -ge 2 ] || { err "--repo requires a value"; exit 2; }
+                REPO="$2"
+                shift 2
+                ;;
+            --profile)
+                [ "$#" -ge 2 ] || { err "--profile requires a value"; exit 2; }
+                PROFILE_NAME="$2"
+                shift 2
+                ;;
+            --yes)
+                ASSUME_YES=1
+                shift
+                ;;
+            --no-setup)
+                SKIP_SETUP=1
+                shift
+                ;;
+            --no-source-fallback)
+                ALLOW_SOURCE_FALLBACK=0
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN=1
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                err "unknown option: $1"
+                usage >&2
+                exit 2
+                ;;
+        esac
+    done
+}
+
+download_file() {
+    url="$1"
+    output="$2"
+
+    if has_cmd curl; then
+        curl -fsSL -H "User-Agent: claudex-installer" "$url" -o "$output"
+    elif has_cmd wget; then
+        wget -O "$output" "$url"
+    else
+        err "curl or wget is required"
+        return 1
+    fi
+}
+
 detect_target() {
     os="$(uname -s)"
     arch="$(uname -m)"
 
     case "$os" in
         Linux)
-            # Detect musl vs glibc
             libc="gnu"
-            if command -v ldd >/dev/null 2>&1; then
+            if has_cmd ldd; then
                 case "$(ldd --version 2>&1 || true)" in
                     *musl*) libc="musl" ;;
                 esac
@@ -24,95 +151,333 @@ detect_target() {
             fi
 
             case "$arch" in
-                x86_64|amd64)   echo "x86_64-unknown-linux-${libc}" ;;
-                aarch64|arm64)  echo "aarch64-unknown-linux-${libc}" ;;
-                *)              echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                x86_64|amd64) echo "x86_64-unknown-linux-${libc}" ;;
+                aarch64|arm64) echo "aarch64-unknown-linux-${libc}" ;;
+                *) err "unsupported Linux architecture: $arch"; exit 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64)         echo "x86_64-apple-darwin" ;;
-                arm64|aarch64)  echo "aarch64-apple-darwin" ;;
-                *)              echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                x86_64) echo "x86_64-apple-darwin" ;;
+                arm64|aarch64) echo "aarch64-apple-darwin" ;;
+                *) err "unsupported macOS architecture: $arch"; exit 1 ;;
             esac
             ;;
+        MINGW*|MSYS*|CYGWIN*)
+            err "use install.ps1 from Windows PowerShell"
+            exit 1
+            ;;
         *)
-            echo "Unsupported OS: $os" >&2
-            echo "For Windows, download from: https://github.com/$REPO/releases" >&2
+            err "unsupported OS: $os"
             exit 1
             ;;
     esac
 }
 
-# Check required commands
 check_deps() {
-    for cmd in curl tar uname; do
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            echo "Error: '$cmd' is required but not found." >&2
-            echo "Install it with your package manager (apt, yum, brew, apk, etc.)" >&2
-            exit 1
+    missing=""
+    for cmd in uname tar; do
+        if ! has_cmd "$cmd"; then
+            missing="$missing $cmd"
         fi
     done
-}
-
-# Get latest release tag
-get_latest_version() {
-    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep '"tag_name"' \
-        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/'
-}
-
-main() {
-    echo "Claudex Installer"
-    echo "================="
-    echo
-
-    check_deps
-
-    target="$(detect_target)"
-    echo "Detected target: $target"
-
-    version="$(get_latest_version)"
-    if [ -z "$version" ]; then
-        echo "Failed to determine latest version" >&2
+    if ! has_cmd curl && ! has_cmd wget; then
+        missing="$missing curl-or-wget"
+    fi
+    if [ -n "$missing" ]; then
+        err "missing required tools:$missing"
         exit 1
     fi
-    echo "Latest version: $version"
 
-    url="https://github.com/$REPO/releases/download/$version/claudex-${version}-${target}.tar.gz"
-    echo "Downloading: $url"
+    if ! has_cmd claude; then
+        say "Warning: Claude Code was not found in PATH."
+    fi
+}
+
+sha256_file() {
+    file="$1"
+    if has_cmd sha256sum; then
+        sha256sum "$file" | awk '{print $1}'
+    elif has_cmd shasum; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    elif has_cmd openssl; then
+        openssl dgst -sha256 "$file" | awk '{print $NF}'
+    else
+        err "sha256sum, shasum, or openssl is required to verify release archives"
+        return 1
+    fi
+}
+
+verify_checksum() {
+    file="$1"
+    checksum_file="$2"
+
+    expected="$(awk '{print $1}' "$checksum_file")"
+    actual="$(sha256_file "$file")"
+
+    if [ "$expected" != "$actual" ]; then
+        err "checksum mismatch for $(basename "$file")"
+        err "expected: $expected"
+        err "actual:   $actual"
+        return 1
+    fi
+    say "Verified SHA256: $actual"
+}
+
+write_expected_checksum() {
+    expected="$1"
+    name="$2"
+    output="$3"
+    printf '%s  %s\n' "$expected" "$name" > "$output"
+}
+
+get_latest_version() {
+    tmp="${TMPDIR:-/tmp}/claudex-release-$$.json"
+    if download_file "https://api.github.com/repos/$REPO/releases/latest" "$tmp" >/dev/null; then
+        sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp" | head -n 1
+        rm -f "$tmp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+parse_manifest_for_target() {
+    manifest="$1"
+    target="$2"
+    awk -v target="$target" '
+        $0 ~ "\"target\": \"" target "\"" { found = 1; next }
+        found && /"name":/ {
+            name = $0
+            sub(/^.*"name": "/, "", name)
+            sub(/".*$/, "", name)
+            next
+        }
+        found && /"sha256":/ {
+            sha = $0
+            sub(/^.*"sha256": "/, "", sha)
+            sub(/".*$/, "", sha)
+            next
+        }
+        found && /"url":/ {
+            url = $0
+            sub(/^.*"url": "/, "", url)
+            sub(/".*$/, "", url)
+            print name
+            print sha
+            print url
+            exit
+        }
+    ' "$manifest"
+}
+
+backup_existing() {
+    dest="$1"
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+        backup="${dest}.backup.$(date +%Y%m%d%H%M%S)"
+        cp -p "$dest" "$backup" 2>/dev/null || true
+        say "Backed up existing binary to $backup"
+    fi
+}
+
+install_binary() {
+    src="$1"
+    dest="$INSTALL_DIR/claudex"
+
+    mkdir -p "$INSTALL_DIR"
+    if is_yes "$DRY_RUN"; then
+        say "Dry run: would install $src to $dest"
+        INSTALLED_BIN="$dest"
+        return 0
+    fi
+    backup_existing "$dest"
+    rm -f "$dest"
+    mv "$src" "$dest"
+    chmod +x "$dest"
+    INSTALLED_BIN="$dest"
+}
+
+install_from_release() {
+    target="$(detect_target)"
+    say "Detected target: $target"
 
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
+    manifest_url="https://github.com/$REPO/releases/latest/download/claudex-release-manifest.json"
+    archive_name=""
+    expected_sha=""
+    url=""
+    checksum_url=""
 
-    if ! curl -fsSL "$url" -o "$tmpdir/claudex.tar.gz"; then
-        echo "" >&2
-        echo "Download failed. This target may not have a pre-built binary." >&2
-        echo "Try building from source: cargo install --git https://github.com/$REPO" >&2
-        exit 1
+    if download_file "$manifest_url" "$tmpdir/manifest.json" >/dev/null 2>&1; then
+        artifact_info="$(parse_manifest_for_target "$tmpdir/manifest.json" "$target")"
+        archive_name="$(printf '%s\n' "$artifact_info" | sed -n '1p')"
+        expected_sha="$(printf '%s\n' "$artifact_info" | sed -n '2p')"
+        url="$(printf '%s\n' "$artifact_info" | sed -n '3p')"
+        if [ -z "$archive_name" ] || [ -z "$expected_sha" ] || [ -z "$url" ]; then
+            err "release manifest does not contain target $target"
+            return 1
+        fi
+        say "Using release manifest: $manifest_url"
+    else
+        if is_yes "$DRY_RUN"; then
+            say "Dry run: release manifest was not available; would query GitHub Releases API as fallback"
+            say "Dry run: would download, verify, unpack, and install to $INSTALL_DIR/claudex"
+            INSTALLED_BIN="$INSTALL_DIR/claudex"
+            return 0
+        fi
+        version="$(get_latest_version)"
+        if [ -z "$version" ]; then
+            err "failed to determine latest release"
+            return 1
+        fi
+        say "Latest release: $version"
+        archive_name="claudex-${version}-${target}.tar.gz"
+        url="https://github.com/$REPO/releases/download/$version/$archive_name"
+        checksum_url="${url}.sha256"
     fi
 
-    tar xzf "$tmpdir/claudex.tar.gz" -C "$tmpdir"
+    say "Downloading: $url"
+    if [ -n "$expected_sha" ]; then
+        say "Expected SHA256: $expected_sha"
+    else
+        say "Checksum:   $checksum_url"
+    fi
 
-    mkdir -p "$INSTALL_DIR"
-    mv "$tmpdir/claudex" "$INSTALL_DIR/claudex"
-    chmod +x "$INSTALL_DIR/claudex"
+    if is_yes "$DRY_RUN"; then
+        say "Dry run: would download, verify, unpack, and install to $INSTALL_DIR/claudex"
+        INSTALLED_BIN="$INSTALL_DIR/claudex"
+        return 0
+    fi
 
-    echo
-    echo "Installed claudex to $INSTALL_DIR/claudex"
+    archive="$tmpdir/$archive_name"
+    checksum_file="$tmpdir/$archive_name.sha256"
+    download_file "$url" "$archive"
+    if [ -n "$expected_sha" ]; then
+        write_expected_checksum "$expected_sha" "$archive_name" "$checksum_file"
+    else
+        download_file "$checksum_url" "$checksum_file"
+    fi
+    verify_checksum "$archive" "$checksum_file"
+    tar xzf "$archive" -C "$tmpdir"
+    install_binary "$tmpdir/claudex"
+}
 
-    # Check if INSTALL_DIR is in PATH
+install_from_source() {
+    if ! has_cmd cargo || ! has_cmd git; then
+        err "cargo and git are required for source install fallback"
+        return 1
+    fi
+    say "Installing from source with cargo..."
+    if is_yes "$DRY_RUN"; then
+        say "Dry run: would run cargo install --git https://github.com/$REPO --force"
+        INSTALLED_BIN="$HOME/.cargo/bin/claudex"
+        return 0
+    fi
+    cargo install --git "https://github.com/$REPO" --force
+    INSTALLED_BIN="$HOME/.cargo/bin/claudex"
+}
+
+ensure_path_notice() {
+    dir="$(dirname "$INSTALLED_BIN")"
     case ":$PATH:" in
-        *":$INSTALL_DIR:"*) ;;
+        *":$dir:"*) ;;
         *)
-            echo
-            echo "Add to PATH (add to your shell rc file):"
-            echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+            say ""
+            say "Add this directory to PATH:"
+            say "  export PATH=\"$dir:\$PATH\""
             ;;
     esac
+}
 
-    echo
-    "$INSTALL_DIR/claudex" --version 2>/dev/null || true
+maybe_stop_proxy() {
+    if [ -z "$INSTALLED_BIN" ] || [ ! -x "$INSTALLED_BIN" ]; then
+        return
+    fi
+
+    status="$("$INSTALLED_BIN" proxy status 2>/dev/null || true)"
+    case "$status" in
+        "Proxy is running"*)
+            say "$status"
+            if prompt_yes_no "Stop the running claudex proxy so the new binary is used?" n; then
+                "$INSTALLED_BIN" proxy stop || true
+            else
+                say "Leaving proxy running. Restart it later to load the new binary."
+            fi
+            ;;
+    esac
+}
+
+maybe_setup_chatgpt() {
+    if is_yes "$SKIP_SETUP" || is_yes "$DRY_RUN"; then
+        return
+    fi
+    if [ -z "$INSTALLED_BIN" ] || [ ! -x "$INSTALLED_BIN" ]; then
+        return
+    fi
+    if ! prompt_yes_no "Set up a ChatGPT/Codex OAuth profile now?" n; then
+        return
+    fi
+
+    if [ -t 0 ]; then
+        printf 'Profile name [%s]: ' "$PROFILE_NAME"
+        read -r chosen || chosen=""
+        if [ -n "$chosen" ]; then
+            PROFILE_NAME="$chosen"
+        fi
+    fi
+
+    args=""
+    if prompt_yes_no "Use headless device-code login?" n; then
+        args="$args --headless"
+    fi
+    if prompt_yes_no "Force browser/device login instead of reusing existing credentials?" n; then
+        args="$args --force"
+    fi
+
+    # shellcheck disable=SC2086
+    "$INSTALLED_BIN" auth login chatgpt --profile "$PROFILE_NAME" $args
+
+    say ""
+    say "Run Claude Code through this profile with:"
+    say "  claudex run $PROFILE_NAME"
+}
+
+main() {
+    parse_args "$@"
+
+    say "Claudex Installer"
+    say "================="
+    say "Repository: $REPO"
+    say "Install dir: $INSTALL_DIR"
+    say ""
+
+    check_deps
+
+    if ! install_from_release; then
+        say ""
+        say "Release install failed."
+        if [ "$ALLOW_SOURCE_FALLBACK" != "1" ]; then
+            exit 1
+        fi
+        if prompt_yes_no "Try source install with cargo instead?" y; then
+            install_from_source
+        else
+            exit 1
+        fi
+    fi
+
+    say ""
+    if is_yes "$DRY_RUN"; then
+        say "Dry run complete."
+        exit 0
+    fi
+
+    say "Installed claudex to $INSTALLED_BIN"
+    "$INSTALLED_BIN" --version 2>/dev/null || true
+    ensure_path_notice
+    maybe_stop_proxy
+    maybe_setup_chatgpt
 }
 
 main "$@"

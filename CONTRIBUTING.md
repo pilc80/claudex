@@ -22,7 +22,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 **Setup:**
 
 ```bash
-git clone https://github.com/StringKe/claudex.git
+git clone https://github.com/pilc80/claudex.git
 cd claudex
 cargo build
 cargo test
@@ -46,7 +46,7 @@ cargo test
 
 #### New Provider Support
 
-We especially welcome contributions adding new AI providers! See the [Provider Request](https://github.com/StringKe/claudex/issues/new?template=provider_request.yml) template.
+We especially welcome contributions adding new AI providers! See the [Provider Request](https://github.com/pilc80/claudex/issues/new?template=provider_request.yml) template.
 
 To add a provider:
 
@@ -106,7 +106,7 @@ cargo check
 
 ### Security
 
-To report a security vulnerability, please use [GitHub Private Vulnerability Reporting](https://github.com/StringKe/claudex/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
+To report a security vulnerability, please use [GitHub Private Vulnerability Reporting](https://github.com/pilc80/claudex/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
 ---
 
@@ -128,7 +128,7 @@ To report a security vulnerability, please use [GitHub Private Vulnerability Rep
 **本地开发：**
 
 ```bash
-git clone https://github.com/StringKe/claudex.git
+git clone https://github.com/pilc80/claudex.git
 cd claudex
 cargo build
 cargo test
@@ -152,7 +152,7 @@ cargo test
 
 #### 新增提供商支持
 
-我们特别欢迎添加新 AI 提供商的贡献！请使用 [Provider Request](https://github.com/StringKe/claudex/issues/new?template=provider_request.yml) 模板。
+我们特别欢迎添加新 AI 提供商的贡献！请使用 [Provider Request](https://github.com/pilc80/claudex/issues/new?template=provider_request.yml) 模板。
 
 添加步骤：
 
@@ -212,4 +212,4 @@ cargo check
 
 ### 安全
 
-报告安全漏洞请使用 [GitHub 私密漏洞报告](https://github.com/StringKe/claudex/security/advisories/new)。详见 [SECURITY.md](SECURITY.md)。
+报告安全漏洞请使用 [GitHub 私密漏洞报告](https://github.com/pilc80/claudex/security/advisories/new)。详见 [SECURITY.md](SECURITY.md)。

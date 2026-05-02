@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-const REPO_OWNER: &str = "StringKe";
+const REPO_OWNER: &str = "pilc80";
 const REPO_NAME: &str = "claudex";
 const BIN_NAME: &str = "claudex";
 

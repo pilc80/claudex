@@ -4,14 +4,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/StringKe/claudex/actions/workflows/ci.yml"><img src="https://github.com/StringKe/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://github.com/StringKe/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/StringKe/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/StringKe/claudex" alt="License"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://img.shields.io/github/v/release/StringKe/claudex" alt="Latest Release"></a>
+  <a href="https://github.com/pilc80/claudex/actions/workflows/ci.yml"><img src="https://github.com/pilc80/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://github.com/pilc80/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/pilc80/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pilc80/claudex" alt="License"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://img.shields.io/github/v/release/pilc80/claudex" alt="Latest Release"></a>
 </p>
 
 <p align="center">
-  <a href="https://stringke.github.io/claudex/zh-CN/">文档</a>
+  <a href="https://github.com/pilc80/claudex">文档</a>
 </p>
 
 <p align="center">
@@ -50,20 +50,20 @@ Claudex 是一个统一代理，通过自动协议翻译让 [Claude Code](https:
 
 ```bash
 # 一键安装（Linux / macOS）
-curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # 从源码构建
-cargo install --git https://github.com/StringKe/claudex
+cargo install --git https://github.com/pilc80/claudex
 
 # 或从 GitHub Releases 下载
-# https://github.com/StringKe/claudex/releases
+# https://github.com/pilc80/claudex/releases
 ```
 
 ### 系统要求
 
 - macOS（Intel / Apple Silicon）或 Linux（x86_64 / ARM64）
 - 已安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- Windows：从 [Releases](https://github.com/StringKe/claudex/releases) 下载预构建二进制文件
+- Windows：从 [Releases](https://github.com/pilc80/claudex/releases) 下载预构建二进制文件
 
 ## 快速上手
 
@@ -127,7 +127,7 @@ claudex run openrouter-claude
 | Google Vertex AI | DirectAnthropic | 无 | Bearer (gcloud) | `claude-sonnet-4@...` |
 | Ollama | OpenAICompatible | Anthropic <-> OpenAI | 无 | `qwen2.5:72b` |
 | LM Studio | OpenAICompatible | Anthropic <-> OpenAI | 无 | 本地模型 |
-| ChatGPT/Codex 订阅 | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.3-codex` |
+| ChatGPT/Codex 订阅 | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.5` |
 | Claude Max 订阅 | DirectAnthropic | 无 | OAuth (file) | `claude-sonnet-4` |
 | GitHub Copilot | OpenAICompatible | Anthropic <-> OpenAI | OAuth (Device+Bearer) | `gpt-4o` |
 | GitLab Duo | OpenAICompatible | Anthropic <-> OpenAI | GITLAB_TOKEN | `claude-sonnet-4` |

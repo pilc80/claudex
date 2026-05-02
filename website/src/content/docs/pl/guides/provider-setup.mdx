@@ -377,14 +377,14 @@ Nastepnie skonfiguruj Claudex:
 name = "codex-sub"
 provider_type = "OpenAIResponses"
 base_url = "https://chatgpt.com/backend-api/codex"
-default_model = "gpt-5.3-codex"
+default_model = "gpt-5.5"
 auth_type = "oauth"
 oauth_provider = "openai"
 
 [profiles.models]
-haiku = "codex-mini-latest"
-sonnet = "gpt-5.3-codex"
-opus = "gpt-5.3-codex"
+haiku = "gpt-5.5"
+sonnet = "gpt-5.5"
+opus = "gpt-5.5"
 ```
 
 ```bash
@@ -399,7 +399,7 @@ claudex run codex-sub
 ```
 
 <Aside type="tip">
-  Obslugiwane modele na endpoincie Codex: `gpt-5.3-codex`, `gpt-5.1-codex`, `codex-mini-latest`. Model `gpt-4o` NIE jest obslugiwany na endpoincie `chatgpt.com` Codex. `strip_params = "auto"` automatycznie wykryje ten endpoint i usunie `temperature`/`top_p`/`top_k`.
+  Obslugiwane modele na endpoincie Codex: `gpt-5.5`. Model `gpt-4o` NIE jest obslugiwany na endpoincie `chatgpt.com` Codex. `strip_params = "auto"` automatycznie wykryje ten endpoint i usunie `temperature`/`top_p`/`top_k`.
 </Aside>
 
 ### Google Gemini

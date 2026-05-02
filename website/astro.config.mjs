@@ -38,7 +38,7 @@ export default defineConfig({
         pl: { label: 'Polski', lang: 'pl' },
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/StringKe/claudex' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/pilc80/claudex' },
         { icon: 'x.com', label: 'X', href: 'https://x.com/StringKe' },
       ],
       head: [
@@ -114,7 +114,7 @@ export default defineConfig({
               price: '0',
               priceCurrency: 'USD',
             },
-            codeRepository: 'https://github.com/StringKe/claudex',
+            codeRepository: 'https://github.com/pilc80/claudex',
           }),
         },
       ],

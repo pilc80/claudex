@@ -10,23 +10,23 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 <Tabs>
   <TabItem label="Une ligne" icon="terminal">
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
     Le script d'installation detecte automatiquement votre OS et votre architecture, telecharge la derniere version depuis GitHub, et installe dans `~/.local/bin/claudex`.
 
     Changer le repertoire d'installation :
     ```bash
-    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
   </TabItem>
   <TabItem label="Cargo" icon="seti:rust">
     ```bash
-    cargo install --git https://github.com/StringKe/claudex
+    cargo install --git https://github.com/pilc80/claudex
     ```
     Necessite la toolchain Rust. Le binaire sera installe dans `~/.cargo/bin/claudex`.
   </TabItem>
   <TabItem label="GitHub Releases" icon="github">
-    Telechargez le binaire pre-compile pour votre plateforme depuis les [GitHub Releases](https://github.com/StringKe/claudex/releases).
+    Telechargez le binaire pre-compile pour votre plateforme depuis les [GitHub Releases](https://github.com/pilc80/claudex/releases).
 
     Cibles disponibles :
     - `x86_64-unknown-linux-gnu`

@@ -4,14 +4,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/StringKe/claudex/actions/workflows/ci.yml"><img src="https://github.com/StringKe/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://github.com/StringKe/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/StringKe/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/StringKe/claudex" alt="License"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://img.shields.io/github/v/release/StringKe/claudex" alt="Latest Release"></a>
+  <a href="https://github.com/pilc80/claudex/actions/workflows/ci.yml"><img src="https://github.com/pilc80/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://github.com/pilc80/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/pilc80/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pilc80/claudex" alt="License"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://img.shields.io/github/v/release/pilc80/claudex" alt="Latest Release"></a>
 </p>
 
 <p align="center">
-  <a href="https://stringke.github.io/claudex/ru/">Документация</a>
+  <a href="https://github.com/pilc80/claudex">Документация</a>
 </p>
 
 <p align="center">
@@ -50,20 +50,20 @@ Claudex — единый прокси, позволяющий [Claude Code](http
 
 ```bash
 # Однострочная установка (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # Из исходников
-cargo install --git https://github.com/StringKe/claudex
+cargo install --git https://github.com/pilc80/claudex
 
 # Или скачайте готовый бинарник из GitHub Releases
-# https://github.com/StringKe/claudex/releases
+# https://github.com/pilc80/claudex/releases
 ```
 
 ### Системные требования
 
 - macOS (Intel / Apple Silicon) или Linux (x86_64 / ARM64)
 - Установленный [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- Windows: скачайте готовый бинарник из [Releases](https://github.com/StringKe/claudex/releases)
+- Windows: скачайте готовый бинарник из [Releases](https://github.com/pilc80/claudex/releases)
 
 ## Быстрый старт
 
@@ -127,7 +127,7 @@ claudex run openrouter-claude
 | Google Vertex AI | DirectAnthropic | Нет | Bearer (gcloud) | `claude-sonnet-4@...` |
 | Ollama | OpenAICompatible | Anthropic <-> OpenAI | Нет | `qwen2.5:72b` |
 | LM Studio | OpenAICompatible | Anthropic <-> OpenAI | Нет | local model |
-| ChatGPT/Codex sub | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.3-codex` |
+| ChatGPT/Codex sub | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.5` |
 | Claude Max sub | DirectAnthropic | Нет | OAuth (file) | `claude-sonnet-4` |
 | GitHub Copilot | OpenAICompatible | Anthropic <-> OpenAI | OAuth (Device+Bearer) | `gpt-4o` |
 | GitLab Duo | OpenAICompatible | Anthropic <-> OpenAI | GITLAB_TOKEN | `claude-sonnet-4` |

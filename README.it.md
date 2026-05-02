@@ -4,14 +4,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/StringKe/claudex/actions/workflows/ci.yml"><img src="https://github.com/StringKe/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://github.com/StringKe/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/StringKe/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/StringKe/claudex" alt="License"></a>
-  <a href="https://github.com/StringKe/claudex/releases"><img src="https://img.shields.io/github/v/release/StringKe/claudex" alt="Latest Release"></a>
+  <a href="https://github.com/pilc80/claudex/actions/workflows/ci.yml"><img src="https://github.com/pilc80/claudex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://github.com/pilc80/claudex/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/pilc80/claudex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pilc80/claudex" alt="License"></a>
+  <a href="https://github.com/pilc80/claudex/releases"><img src="https://img.shields.io/github/v/release/pilc80/claudex" alt="Latest Release"></a>
 </p>
 
 <p align="center">
-  <a href="https://stringke.github.io/claudex/it/">Documentazione</a>
+  <a href="https://github.com/pilc80/claudex">Documentazione</a>
 </p>
 
 <p align="center">
@@ -50,20 +50,20 @@ Claudex è un proxy unificato che consente a [Claude Code](https://docs.anthropi
 
 ```bash
 # Installazione in un comando (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/StringKe/claudex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # Dal sorgente
-cargo install --git https://github.com/StringKe/claudex
+cargo install --git https://github.com/pilc80/claudex
 
 # Oppure scarica da GitHub Releases
-# https://github.com/StringKe/claudex/releases
+# https://github.com/pilc80/claudex/releases
 ```
 
 ### Requisiti di sistema
 
 - macOS (Intel / Apple Silicon) o Linux (x86_64 / ARM64)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installato
-- Windows: scarica il binario precompilato da [Releases](https://github.com/StringKe/claudex/releases)
+- Windows: scarica il binario precompilato da [Releases](https://github.com/pilc80/claudex/releases)
 
 ## Avvio rapido
 
@@ -127,7 +127,7 @@ Il proxy intercetta le richieste e gestisce la traduzione dei protocolli:
 | Google Vertex AI | DirectAnthropic | Nessuna | Bearer (gcloud) | `claude-sonnet-4@...` |
 | Ollama | OpenAICompatible | Anthropic <-> OpenAI | Nessuna | `qwen2.5:72b` |
 | LM Studio | OpenAICompatible | Anthropic <-> OpenAI | Nessuna | modello locale |
-| Sottoscrizione ChatGPT/Codex | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.3-codex` |
+| Sottoscrizione ChatGPT/Codex | OpenAIResponses | Anthropic <-> Responses | OAuth (PKCE/Device) | `gpt-5.5` |
 | Sottoscrizione Claude Max | DirectAnthropic | Nessuna | OAuth (file) | `claude-sonnet-4` |
 | GitHub Copilot | OpenAICompatible | Anthropic <-> OpenAI | OAuth (Device+Bearer) | `gpt-4o` |
 | GitLab Duo | OpenAICompatible | Anthropic <-> OpenAI | GITLAB_TOKEN | `claude-sonnet-4` |

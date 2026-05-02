@@ -17,7 +17,7 @@ Only the latest release receives security updates.
 
 ### How to Report / 如何报告
 
-1. **Preferred**: Use [GitHub Private Vulnerability Reporting](https://github.com/StringKe/claudex/security/advisories/new)
+1. **Preferred**: Use [GitHub Private Vulnerability Reporting](https://github.com/pilc80/claudex/security/advisories/new)
 2. **Alternative**: Email **stringke.me@gmail.com** with subject "Claudex Security"
 
 ### What to Include / 报告内容

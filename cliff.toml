@@ -8,7 +8,7 @@ header = """
 """
 body = """
 {%- macro remote_url() -%}
-  https://github.com/StringKe/claudex
+  https://github.com/pilc80/claudex
 {%- endmacro -%}
 
 {% if version -%}
