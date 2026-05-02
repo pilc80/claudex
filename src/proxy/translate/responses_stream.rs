@@ -332,6 +332,13 @@ impl ResponsesStreamState {
                 vec![]
             }
             "response.function_call_arguments.delta" => {
+                if !self.block_started || !self.has_tool_use {
+                    tracing::warn!(
+                        last_event_type = ?self.last_event_type,
+                        "ignoring orphan Responses function-call argument delta"
+                    );
+                    return vec![];
+                }
                 let delta = json.get("delta").and_then(|d| d.as_str()).unwrap_or("");
                 if delta.is_empty() {
                     return vec![];
@@ -605,5 +612,21 @@ mod tests {
 
         assert!(output.contains("tail"));
         assert!(!output.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn test_orphan_function_arguments_delta_returns_error_before_message_start() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "event: response.function_call_arguments.delta\ndata: {\"delta\":\"{\\\"path\\\"\"}\n\n",
+        ))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let first = stream.next().await.unwrap().unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+        assert!(text.contains("event: error"));
+        assert!(text.contains("ended without translatable content"));
+        assert!(!text.contains("message_start"));
+        assert!(!text.contains("content_block_delta"));
+        assert!(stream.next().await.is_none());
     }
 }

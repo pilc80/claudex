@@ -12,6 +12,7 @@ pub mod util;
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::sync::RwLock;
@@ -94,6 +95,7 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
             post(handler::handle_messages),
         )
         .route("/health", get(|| async { "ok" }))
+        .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(state);
 
     let bind_addr = format!("{host}:{port}");
