@@ -9,6 +9,7 @@ proxy_port = 13456
 proxy_host = "127.0.0.1"
 
 # Log level: trace, debug, info, warn, error
+# Default is info. Use debug temporarily when diagnosing proxy/stream issues.
 log_level = "info"
 
 # Terminal hyperlinks (OSC 8): "auto" | true | false
