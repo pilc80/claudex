@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
+use axum::extract::rejection::BytesRejection;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -18,7 +19,7 @@ pub async fn handle_messages(
     State(state): State<Arc<ProxyState>>,
     Path(profile_name): Path<String>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    body: Result<axum::body::Bytes, BytesRejection>,
 ) -> Response {
     let start = Instant::now();
 
@@ -45,11 +46,34 @@ pub async fn handle_messages(
             }
         })
         .unwrap_or_else(|| "(none)".to_string());
+    let content_length = headers
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("(none)");
+    let body = match body {
+        Ok(body) => body,
+        Err(err) => {
+            tracing::warn!(
+                profile = %profile_name,
+                authorization = %auth_header,
+                x_api_key = %api_key_header,
+                content_length = %content_length,
+                error = %err,
+                "request body rejected before proxy translation"
+            );
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("request body too large or unreadable before proxy translation: {err}"),
+            )
+                .into_response();
+        }
+    };
 
     tracing::info!(
         profile = %profile_name,
         authorization = %auth_header,
         x_api_key = %api_key_header,
+        content_length = %content_length,
         body_len = %body.len(),
         "incoming request"
     );

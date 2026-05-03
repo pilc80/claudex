@@ -213,6 +213,7 @@ impl ResponsesStreamState {
         if !event_type.is_empty() {
             self.last_event_type = Some(event_type.to_string());
         }
+        self.log_parsed_event(event_type, &json);
         match event_type {
             "response.output_text.delta" => {
                 let delta = json.get("delta").and_then(|d| d.as_str()).unwrap_or("");
@@ -419,6 +420,120 @@ impl ResponsesStreamState {
         }
     }
 
+    fn log_parsed_event(&self, event_type: &str, event: &Value) {
+        match event_type {
+            "response.output_text.delta" => {
+                tracing::debug!(
+                    event_type,
+                    delta_len = event
+                        .get("delta")
+                        .and_then(|v| v.as_str())
+                        .map(str::len)
+                        .unwrap_or(0),
+                    block_started = self.block_started,
+                    has_tool_use = self.has_tool_use,
+                    "Responses stream text delta"
+                );
+            }
+            "response.function_call_arguments.delta" => {
+                tracing::debug!(
+                    event_type,
+                    delta_len = event
+                        .get("delta")
+                        .and_then(|v| v.as_str())
+                        .map(str::len)
+                        .unwrap_or(0),
+                    block_started = self.block_started,
+                    has_tool_use = self.has_tool_use,
+                    "Responses stream function arguments delta"
+                );
+            }
+            "response.output_item.added" | "response.output_item.done" => {
+                let item = event.get("item");
+                tracing::info!(
+                    event_type,
+                    item_type = item
+                        .and_then(|v| v.get("type"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    item_status = item
+                        .and_then(|v| v.get("status"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    name = item
+                        .and_then(|v| v.get("name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    call_id = item
+                        .and_then(|v| v.get("call_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    output_index = event.get("output_index").and_then(|v| v.as_u64()),
+                    block_started = self.block_started,
+                    has_tool_use = self.has_tool_use,
+                    "Responses stream item event"
+                );
+            }
+            "response.function_call_arguments.done" => {
+                tracing::info!(
+                    event_type,
+                    name = event
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    arguments_len = event
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .map(str::len)
+                        .unwrap_or(0),
+                    block_started = self.block_started,
+                    has_tool_use = self.has_tool_use,
+                    "Responses stream function arguments done"
+                );
+            }
+            "response.completed" => {
+                let response = event.get("response");
+                tracing::info!(
+                    event_type,
+                    response_status = response
+                        .and_then(|v| v.get("status"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    output_item_types = ?response
+                        .and_then(|v| v.get("output"))
+                        .and_then(|v| v.as_array())
+                        .map(|items| output_item_types(items))
+                        .unwrap_or_default(),
+                    output_tokens = response
+                        .and_then(|v| v.get("usage"))
+                        .and_then(|v| v.get("output_tokens"))
+                        .and_then(|v| v.as_u64()),
+                    block_started = self.block_started,
+                    has_tool_use = self.has_tool_use,
+                    saw_text_delta = self.saw_text_delta,
+                    "Responses stream completed"
+                );
+            }
+            "response.failed" | "codex.rate_limits" => {
+                tracing::warn!(event_type, "Responses stream terminal error event");
+            }
+            "" => {
+                tracing::warn!("Responses stream data had no event type");
+            }
+            _ => {
+                tracing::info!(
+                    event_type,
+                    item_type = event
+                        .get("item")
+                        .and_then(|v| v.get("type"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("<none>"),
+                    "Responses stream unhandled event"
+                );
+            }
+        }
+    }
+
     fn finish_sse_event(&mut self) {
         self.pending_event_type = None;
     }
@@ -446,6 +561,18 @@ impl ResponsesStreamState {
         self.saw_text_delta = true;
         events
     }
+}
+
+fn output_item_types(items: &[Value]) -> Vec<String> {
+    items
+        .iter()
+        .map(|item| {
+            item.get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<none>")
+                .to_string()
+        })
+        .collect()
 }
 
 fn extract_message_text(item: &Value) -> String {
