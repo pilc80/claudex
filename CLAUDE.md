@@ -1,127 +1,143 @@
-# Claudex - Claude Code 项目指南
+# Claudex - Claude Code Project Guide
 
-## 项目概述
+## Project Overview
 
-Claudex 是一个 Rust 实现的多实例 Claude Code 管理器，内置智能翻译代理。它通过本地 proxy 将 Claude Code 的 Anthropic API 请求翻译并转发到多种 AI 提供商。
+Claudex is a Rust-based multi-instance Claude Code manager with a built-in
+translation proxy. It translates Claude Code's Anthropic API requests through a
+local proxy and forwards them to multiple AI providers.
 
-## 技术栈
+## Technology Stack
 
-- **语言**: Rust (Edition 2021)
-- **异步运行时**: Tokio
-- **Web 框架**: Axum 0.8
-- **HTTP 客户端**: reqwest (rustls-tls)
+- **Language**: Rust (Edition 2021)
+- **Async runtime**: Tokio
+- **Web framework**: Axum 0.8
+- **HTTP client**: reqwest (rustls-tls)
 - **TUI**: ratatui + crossterm
-- **配置**: TOML (toml crate)
-- **日志**: tracing + tracing-subscriber
-- **错误处理**: anyhow + thiserror
+- **Configuration**: TOML (toml crate)
+- **Logging**: tracing + tracing-subscriber
+- **Error handling**: anyhow + thiserror
 
-## 项目结构
+## Project Structure
 
-```
+```text
 src/
-├── main.rs              # 入口 + CLI dispatch
-├── cli.rs               # clap 子命令定义
-├── config.rs            # 配置解析（API key 直接存 config，不自动读 keyring）
-├── profile.rs           # Profile 管理
-├── launch.rs            # 启动 claude 进程（含 Claude OAuth 特殊处理）
-├── oauth/               # OAuth 订阅认证
-│   ├── mod.rs           # AuthType, OAuthProvider, OAuthToken 类型
-│   ├── token.rs         # 外部 CLI token 读取（Codex/Claude/Gemini）
-│   ├── server.rs        # 本地回调服务器 + Device Code 轮询
-│   └── providers.rs     # 各平台登录/刷新/状态逻辑
-├── daemon.rs            # PID 文件 + 进程管理
-├── metrics.rs           # 请求指标
-├── proxy/               # 翻译代理
+├── main.rs              # Entry point + CLI dispatch
+├── cli.rs               # clap subcommand definitions
+├── config.rs            # Config parsing; API keys are stored in config, no automatic keyring read
+├── profile.rs           # Profile management
+├── launch.rs            # Launches the claude process, including Claude OAuth special handling
+├── oauth/               # OAuth subscription auth
+│   ├── mod.rs           # AuthType, OAuthProvider, OAuthToken types
+│   ├── token.rs         # External CLI token reads (Codex/Claude/Gemini)
+│   ├── server.rs        # Local callback server + device-code polling
+│   └── providers.rs     # Login/refresh/status logic for each platform
+├── daemon.rs            # PID file + process management
+├── metrics.rs           # Request metrics
+├── proxy/               # Translation proxy
 │   ├── mod.rs           # Axum server
-│   ├── handler.rs       # 请求处理
-│   ├── translation.rs   # Anthropic ↔ OpenAI 翻译
-│   ├── streaming.rs     # SSE 流式翻译
-│   ├── fallback.rs      # 断路器
-│   ├── health.rs        # 健康检查
-│   └── models.rs        # /v1/models 端点
-├── router/              # 智能路由
+│   ├── handler.rs       # Request handling
+│   ├── translation.rs   # Anthropic <-> OpenAI translation
+│   ├── streaming.rs     # SSE streaming translation
+│   ├── fallback.rs      # Circuit breaker
+│   ├── health.rs        # Health checks
+│   └── models.rs        # /v1/models endpoint
+├── router/              # Smart routing
 │   ├── mod.rs
-│   └── classifier.rs    # 意图分类
-├── context/             # 上下文引擎
+│   └── classifier.rs    # Intent classification
+├── context/             # Context engine
 │   ├── mod.rs
-│   ├── compression.rs   # 对话压缩
-│   ├── sharing.rs       # 跨 profile 共享
-│   └── rag.rs           # 本地 RAG
-└── tui/                 # TUI 仪表盘
+│   ├── compression.rs   # Conversation compression
+│   ├── sharing.rs       # Cross-profile sharing
+│   └── rag.rs           # Local RAG
+└── tui/                 # TUI dashboard
     ├── mod.rs
     ├── dashboard.rs
     ├── widgets.rs
     └── input.rs
 ```
 
-## 构建与运行
+## Build and Run
 
 ```bash
-# 开发构建
+# Development build
 cargo build
 
-# Release 构建
+# Release build
 cargo build --release
 
-# 检查
+# Check
 cargo check
 
-# Clippy 检查
+# Clippy
 cargo clippy
 
-# 运行
+# Run
 cargo run -- profile list
 cargo run -- run grok
 cargo run -- proxy start
 ```
 
-## 核心概念
+## Core Concepts
 
 ### Provider Types
 
-- `DirectAnthropic`: 原生 Anthropic API，直接转发（Anthropic、MiniMax）
-- `OpenAICompatible`: OpenAI 兼容 API，需要协议翻译（OpenRouter、Grok、OpenAI、DeepSeek、Kimi、GLM、Ollama）
+- `DirectAnthropic`: native Anthropic API passthrough, for providers such as
+  Anthropic and MiniMax.
+- `OpenAICompatible`: OpenAI-compatible API that requires protocol translation,
+  for providers such as OpenRouter, Grok, OpenAI, DeepSeek, Kimi, GLM, and
+  Ollama.
 
-### 翻译层
+### Translation Layer
 
-`proxy/translation.rs` 实现完整的 Anthropic ↔ OpenAI 双向翻译：
-- 请求翻译：system prompt、messages（含图片、tool_use）、tools、tool_choice
-- 响应翻译：content blocks、tool calls、usage、stop_reason
-- 流式翻译（`proxy/streaming.rs`）：SSE 事件转换、tool call 状态机
+`proxy/translation.rs` implements Anthropic <-> OpenAI request and response
+translation:
 
-### 认证方式
+- Request translation: system prompt, messages including images and `tool_use`,
+  tools, and `tool_choice`.
+- Response translation: content blocks, tool calls, usage, and `stop_reason`.
+- Streaming translation (`proxy/streaming.rs`): SSE event conversion and tool
+  call state handling.
 
-- **API Key**（默认）：配置 `api_key` 或 `api_key_keyring`
-- **OAuth 订阅**：配置 `auth_type = "oauth"` + `oauth_provider`，通过 `claudex auth login` 完成
-  - Claude subscription 特殊处理：跳过代理，让 Claude Code 直接使用自身 OAuth
-  - 其他 provider：OAuth token 存入 keyring，代理自动加载和刷新
+### Authentication
 
-### 配置
+- **API key** (default): configure `api_key` or `api_key_keyring`.
+- **OAuth subscription**: configure `auth_type = "oauth"` and `oauth_provider`;
+  complete setup through `claudex auth login`.
+  - Claude subscription special case: skip the proxy and let Claude Code use its
+    own OAuth session directly.
+  - Other providers: store OAuth tokens in the keyring; the proxy loads and
+    refreshes them automatically.
 
-配置文件位于 `~/.config/claudex/config.toml`，参考 `config.example.toml`。
+### Configuration
 
-## 开发规范
+The config file is at `~/.config/claudex/config.toml`. See
+`config.example.toml`.
 
-- 编译检查：修改后运行 `cargo check` 确认通过
-- 代码检查：提交前运行 `cargo clippy` 确认无 warning
-- 错误处理：使用 `anyhow::Result` + `?` 传播，不要 unwrap 生产代码
-- 日志：使用 `tracing::info!` / `tracing::warn!` / `tracing::error!`
-- 格式化：运行 `cargo fmt` 保持统一风格
+## Development Rules
 
-## 部署规则
+- Compile check: run `cargo check` after changes.
+- Code check: run `cargo clippy` before committing; keep it warning-free.
+- Error handling: use `anyhow::Result` and `?`; do not use `unwrap()` in
+  production code.
+- Logging: use `tracing::info!`, `tracing::warn!`, and `tracing::error!`.
+- Formatting: run `cargo fmt`.
 
-- 每次部署新 server/proxy binary 前，必须递增 `Cargo.toml` patch version：
-  `0.9.x -> 0.9.x+1`。先改版本，再 `cargo build --release`，再更新/验证部署。
-- 不要部署和当前已部署 binary 相同版本的新行为；health version/stale-proxy 检查依赖版本号。
+## Deployment Rules
 
-## 关键文件说明
+- Before each new server/proxy binary deploy, increment the `Cargo.toml` patch
+  version: `0.9.x -> 0.9.x+1`. Bump the version first, then run
+  `cargo build --release`, then update and verify the deployment.
+- Do not deploy new behavior with the same version as the currently deployed
+  binary. The health version and stale-proxy checks depend on the version.
 
-| 文件 | 修改频率 | 说明 |
-|------|---------|------|
-| `config.rs` | 中 | 新增配置字段时需要同步更新 |
-| `translation.rs` | 高 | 翻译逻辑是核心，新提供商可能需要特殊处理 |
-| `streaming.rs` | 高 | 流式翻译复杂度高，需要仔细处理状态机 |
-| `handler.rs` | 中 | 新增路由或中间件时修改，含 OAuth token 懒刷新 |
-| `cli.rs` | 低 | 新增子命令时修改 |
-| `oauth/` | 低 | OAuth 认证模块，新增 provider 时修改 |
-| `launch.rs` | 低 | Claude OAuth subscription 特殊处理逻辑在此 |
+## Key Files
+
+| File | Change frequency | Notes |
+|------|------------------|-------|
+| `config.rs` | Medium | Update when adding config fields |
+| `translation.rs` | High | Core translation logic; new providers may need special handling |
+| `streaming.rs` | High | Streaming translation is stateful and needs careful handling |
+| `handler.rs` | Medium | Request routing/middleware, including lazy OAuth token refresh |
+| `cli.rs` | Low | Update when adding subcommands |
+| `oauth/` | Low | OAuth auth module; update when adding providers |
+| `launch.rs` | Low | Contains Claude OAuth subscription special handling |
