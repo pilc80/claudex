@@ -14,25 +14,6 @@ use crate::router::classifier;
 
 const IMAGE_HISTORY_PLACEHOLDER_PREFIX: &str = "[Previous image omitted by claudex";
 
-#[derive(Debug)]
-struct LocalForwardError {
-    source: anyhow::Error,
-}
-
-impl LocalForwardError {
-    fn new(source: anyhow::Error) -> Self {
-        Self { source }
-    }
-}
-
-impl std::fmt::Display for LocalForwardError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.source)
-    }
-}
-
-impl std::error::Error for LocalForwardError {}
-
 pub async fn handle_messages(
     State(state): State<Arc<ProxyState>>,
     Path(profile_name): Path<String>,
@@ -353,19 +334,11 @@ async fn try_with_circuit_breaker(
         .or_insert_with(Default::default);
     match &result {
         Ok(_) => cb.record_success(),
-        Err(_) if should_record_circuit_failure(&result) => cb.record_failure(),
-        Err(_) => {}
+        Err(_) => cb.record_failure(),
     }
     drop(map);
 
     result
-}
-
-fn should_record_circuit_failure(result: &anyhow::Result<Response>) -> bool {
-    match result {
-        Ok(_) => false,
-        Err(err) => err.downcast_ref::<LocalForwardError>().is_none(),
-    }
 }
 
 /// Forward request to a single provider (used for both primary and backup).
@@ -380,9 +353,7 @@ async fn try_forward(
     let adapter = super::adapter::for_provider(&profile.provider_type);
     let mut body_for_translation = body.clone();
     apply_metadata_from_headers(&mut body_for_translation, headers, profile);
-    let mut translated = adapter
-        .translate_request(&body_for_translation, profile)
-        .map_err(LocalForwardError::new)?;
+    let mut translated = adapter.translate_request(&body_for_translation, profile)?;
     adapter.filter_translated_body(&mut translated.body, profile);
     let translated_model = translated
         .body
@@ -574,9 +545,8 @@ async fn try_forward(
             Ok(response)
         } else {
             let resp_json: Value = resp.json().await?;
-            let anthropic_resp = adapter
-                .translate_response(&resp_json, &translated.tool_name_map)
-                .map_err(LocalForwardError::new)?;
+            let anthropic_resp =
+                adapter.translate_response(&resp_json, &translated.tool_name_map)?;
             extract_and_store_context(state, &profile.name, &anthropic_resp);
             let response = Response::builder()
                 .status(200)
@@ -1030,20 +1000,5 @@ mod tests {
         headers.insert("retry-after", "30".parse().unwrap());
 
         assert_eq!(retry_after_delay(&headers), Duration::from_secs(5));
-    }
-
-    #[test]
-    fn test_local_translation_errors_do_not_count_as_circuit_failures() {
-        let result: anyhow::Result<Response> =
-            Err(LocalForwardError::new(anyhow::anyhow!("bad local request")).into());
-
-        assert!(!should_record_circuit_failure(&result));
-    }
-
-    #[test]
-    fn test_upstream_errors_count_as_circuit_failures() {
-        let result: anyhow::Result<Response> = Err(anyhow::anyhow!("upstream unavailable"));
-
-        assert!(should_record_circuit_failure(&result));
     }
 }
