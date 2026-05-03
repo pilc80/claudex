@@ -36,6 +36,11 @@ intentionally unsupported.
 - ✅ Anthropic Messages -> OpenAI Responses request conversion.
 - ✅ Responses -> Anthropic response and SSE stream conversion.
 - ✅ `/compact` with streamed and non-streamed Responses shapes.
+- ✅ Codex context-overflow errors translate to Claude Code's context-limit
+  prompt so users can run `/compact` or `/clear` instead of seeing malformed
+  proxy responses.
+- ✅ Error-only proxy dumps for upstream OpenAI errors and Claude-visible
+  translated errors.
 - ✅ Current-turn images, including optional `image_model` routing.
 - ✅ Old base64 image-history pruning to avoid oversized requests.
 - ✅ Tool calls/results, including current tool-result images.
@@ -58,6 +63,11 @@ intentionally unsupported.
 
 If a model alias returns `400 model is not supported`, map that Claude slot to a
 model accepted by your ChatGPT/Codex account.
+
+When Codex reports that the request exceeds the model context window, claudex
+returns Claude Code's normal context-limit error shape instead of streaming a
+malformed proxy response. The user can then run `/compact` or `/clear` from
+Claude Code; claudex does not attempt fragile cross-protocol auto-compaction.
 
 ## Install
 
