@@ -108,6 +108,12 @@ cargo run -- proxy start
 - 日志：使用 `tracing::info!` / `tracing::warn!` / `tracing::error!`
 - 格式化：运行 `cargo fmt` 保持统一风格
 
+## 部署规则
+
+- 每次部署新 server/proxy binary 前，必须递增 `Cargo.toml` patch version：
+  `0.9.x -> 0.9.x+1`。先改版本，再 `cargo build --release`，再更新/验证部署。
+- 不要部署和当前已部署 binary 相同版本的新行为；health version/stale-proxy 检查依赖版本号。
+
 ## 关键文件说明
 
 | 文件 | 修改频率 | 说明 |
