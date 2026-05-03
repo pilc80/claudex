@@ -1,6 +1,6 @@
 [package]
 name = "claudex"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2021"
 autobins = false
 description = "Multi-instance Claude Code manager with intelligent translation proxy"
