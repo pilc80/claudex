@@ -185,7 +185,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.create-release.outputs.tag }}
-        run: gh release upload "$TAG" claudex-release-manifest.json
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" claudex-release-manifest.json --repo "$REPO"
 
   publish-release:
     name: Publish Release
