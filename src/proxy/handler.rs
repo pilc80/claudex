@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
@@ -6,7 +7,9 @@ use axum::extract::rejection::BytesRejection;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde_json::{Map, Value};
+use bytes::Bytes;
+use futures::{Stream, StreamExt};
+use serde_json::{json, Map, Value};
 
 use crate::config::{ProfileConfig, ProviderType};
 use crate::oauth::AuthType;
@@ -428,25 +431,6 @@ async fn try_forward(
         "forwarding request"
     );
 
-    // Debug: log translated request body (truncated)
-    if tracing::enabled!(tracing::Level::DEBUG) {
-        let body_str = serde_json::to_string(&translated.body).unwrap_or_default();
-        let preview = if body_str.len() > 2000 {
-            format!(
-                "{}...(truncated, total {} bytes)",
-                truncate_at_char_boundary(&body_str, 2000),
-                body_str.len()
-            )
-        } else {
-            body_str
-        };
-        tracing::debug!(
-            profile = %profile.name,
-            body = %preview,
-            "translated request body"
-        );
-    }
-
     let mut attempts = 0;
     let resp = loop {
         let mut req = state
@@ -536,6 +520,15 @@ async fn try_forward(
                     "client error (non-retryable)"
                 );
                 let anthropic_err = super::util::to_anthropic_error(status.as_u16(), &err_body);
+                dump_proxy_error(
+                    &profile.name,
+                    "openai_error",
+                    &url,
+                    status.as_u16(),
+                    &translated.body,
+                    &err_body,
+                    Some(&anthropic_err),
+                );
                 let response = Response::builder()
                     .status(status.as_u16())
                     .header("content-type", "application/json")
@@ -553,24 +546,100 @@ async fn try_forward(
                 body = %err_body,
                 "upstream error"
             );
+            dump_proxy_error(
+                &profile.name,
+                "openai_error",
+                &url,
+                status.as_u16(),
+                &translated.body,
+                &err_body,
+                None,
+            );
             anyhow::bail!("upstream returned HTTP {status}: {err_body}");
         }
 
         if upstream_is_streaming {
             let stream = resp.bytes_stream();
+            if profile.provider_type == ProviderType::OpenAIResponses {
+                let preflight = preflight_openai_responses_stream(Box::pin(stream)).await?;
+                if preflight.context_overflow {
+                    let anthropic_err = json!({
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "message": "prompt is too long",
+                        }
+                    });
+                    dump_proxy_error(
+                        &profile.name,
+                        "claude_error",
+                        &url,
+                        status.as_u16(),
+                        &translated.body,
+                        String::from_utf8_lossy(&preflight.buffered).to_string(),
+                        Some(&anthropic_err),
+                    );
+                    let response = Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&anthropic_err)?))
+                        .map_err(|e| anyhow::anyhow!("failed to build error response: {e}"))?;
+                    return Ok(response);
+                }
+
+                let (stream, upstream_capture) = capture_stream(preflight.stream);
+                let translated_stream =
+                    adapter.translate_stream(Box::pin(stream), translated.tool_name_map);
+                let dumped_stream = dump_claude_stream_errors(
+                    translated_stream,
+                    profile.name.clone(),
+                    url.clone(),
+                    status.as_u16(),
+                    translated.body.clone(),
+                    upstream_capture,
+                );
+                let response = Response::builder()
+                    .status(200)
+                    .header("content-type", "text/event-stream")
+                    .header("cache-control", "no-cache")
+                    .body(Body::from_stream(dumped_stream))
+                    .map_err(|e| anyhow::anyhow!("failed to build response: {e}"))?;
+                return Ok(response);
+            }
+
+            let (stream, upstream_capture) = capture_stream(stream);
             let translated_stream =
                 adapter.translate_stream(Box::pin(stream), translated.tool_name_map);
+            let dumped_stream = dump_claude_stream_errors(
+                translated_stream,
+                profile.name.clone(),
+                url.clone(),
+                status.as_u16(),
+                translated.body.clone(),
+                upstream_capture,
+            );
             let response = Response::builder()
                 .status(200)
                 .header("content-type", "text/event-stream")
                 .header("cache-control", "no-cache")
-                .body(Body::from_stream(translated_stream))
+                .body(Body::from_stream(dumped_stream))
                 .map_err(|e| anyhow::anyhow!("failed to build response: {e}"))?;
             Ok(response)
         } else {
             let resp_json: Value = resp.json().await?;
             let anthropic_resp =
                 adapter.translate_response(&resp_json, &translated.tool_name_map)?;
+            if anthropic_resp.get("type").and_then(|v| v.as_str()) == Some("error") {
+                dump_proxy_error(
+                    &profile.name,
+                    "claude_error",
+                    &url,
+                    status.as_u16(),
+                    &translated.body,
+                    &resp_json,
+                    Some(&anthropic_resp),
+                );
+            }
             extract_and_store_context(state, &profile.name, &anthropic_resp);
             let response = Response::builder()
                 .status(200)
@@ -613,6 +682,204 @@ fn retry_after_delay(headers: &HeaderMap) -> Duration {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(1);
     Duration::from_secs(seconds.min(5))
+}
+
+const PREFLIGHT_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+struct ResponsesStreamPreflight {
+    context_overflow: bool,
+    buffered: Vec<u8>,
+    stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+}
+
+async fn preflight_openai_responses_stream(
+    input: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+) -> anyhow::Result<ResponsesStreamPreflight> {
+    let mut stream = input;
+    let mut buffered = Vec::new();
+    let mut context_overflow = false;
+
+    while buffered.len() < PREFLIGHT_MAX_BYTES {
+        let Some(chunk) = stream.next().await else {
+            break;
+        };
+        let chunk = chunk?;
+        buffered.extend_from_slice(&chunk);
+        if buffered_has_context_overflow(&buffered) {
+            context_overflow = true;
+            break;
+        }
+        if buffered_has_translatable_responses_content(&buffered) {
+            break;
+        }
+    }
+
+    let replay = buffered.clone();
+    let output = async_stream::stream! {
+        if !replay.is_empty() {
+            yield Ok(Bytes::from(replay));
+        }
+        while let Some(chunk) = stream.next().await {
+            yield chunk;
+        }
+    };
+
+    Ok(ResponsesStreamPreflight {
+        context_overflow,
+        buffered,
+        stream: Box::pin(output),
+    })
+}
+
+fn buffered_has_context_overflow(buffered: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(buffered).to_ascii_lowercase();
+    text.contains("context_length_exceeded")
+        || (text.contains("context window") && text.contains("exceeds"))
+}
+
+fn buffered_has_translatable_responses_content(buffered: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(buffered);
+    text.contains("event: response.output_text.delta")
+        || text.contains("event: response.output_item.done")
+        || text.contains("event: response.output_item.added")
+        || text.contains("event: response.function_call_arguments.delta")
+        || text.contains("event: response.completed")
+        || text.contains("event: response.failed")
+        || text.contains("event: error")
+}
+
+fn capture_stream<S>(
+    input: S,
+) -> (
+    impl Stream<Item = Result<Bytes, reqwest::Error>> + Send,
+    Arc<Mutex<Vec<u8>>>,
+)
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let stream_capture = capture.clone();
+    let output = async_stream::stream! {
+        let mut stream = std::pin::pin!(input);
+        while let Some(chunk) = stream.next().await {
+            if let Ok(bytes) = &chunk {
+                if let Ok(mut captured) = stream_capture.lock() {
+                    captured.extend_from_slice(bytes);
+                }
+            }
+            yield chunk;
+        }
+    };
+    (output, capture)
+}
+
+fn dump_claude_stream_errors<S>(
+    input: S,
+    profile: String,
+    url: String,
+    upstream_status: u16,
+    request: Value,
+    upstream_response: Arc<Mutex<Vec<u8>>>,
+) -> impl Stream<Item = Result<Bytes, reqwest::Error>> + Send
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    async_stream::stream! {
+        let mut stream = std::pin::pin!(input);
+        let mut response = Vec::new();
+        let mut dumped = false;
+
+        while let Some(chunk) = stream.next().await {
+            if let Ok(bytes) = &chunk {
+                response.extend_from_slice(bytes);
+                if !dumped && stream_chunk_has_error_event(bytes) {
+                    dumped = true;
+                }
+            }
+            yield chunk;
+        }
+
+        if dumped {
+            let response_text = String::from_utf8_lossy(&response).to_string();
+            let upstream_response_text = upstream_response
+                .lock()
+                .map(|captured| String::from_utf8_lossy(&captured).to_string())
+                .unwrap_or_default();
+            dump_proxy_error(
+                &profile,
+                "claude_error",
+                &url,
+                upstream_status,
+                &request,
+                json!({
+                    "upstream": upstream_response_text,
+                    "downstream": response_text,
+                }),
+                None,
+            );
+        }
+    }
+}
+
+fn stream_chunk_has_error_event(bytes: &[u8]) -> bool {
+    std::str::from_utf8(bytes)
+        .is_ok_and(|chunk| chunk.contains("event: error") || chunk.contains("\"type\":\"error\""))
+}
+
+fn dump_proxy_error(
+    profile: &str,
+    kind: &str,
+    url: &str,
+    upstream_status: u16,
+    request: &Value,
+    response: impl serde::Serialize,
+    translated_response: Option<&Value>,
+) {
+    let Some(dir) = dirs::cache_dir().map(|d| d.join("claudex").join("errors")) else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %err, "failed to create proxy error dump directory");
+        return;
+    }
+
+    let safe_profile = profile
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let path = dir.join(format!(
+        "{}-{}-{}-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S%.3f"),
+        std::process::id(),
+        safe_profile,
+        kind
+    ));
+    let dump = json!({
+        "profile": profile,
+        "kind": kind,
+        "url": url,
+        "upstream_status": upstream_status,
+        "request": request,
+        "response": response,
+        "translated_response": translated_response,
+    });
+
+    match serde_json::to_vec_pretty(&dump) {
+        Ok(bytes) => {
+            if let Err(err) = std::fs::write(&path, bytes) {
+                tracing::warn!(error = %err, path = %path.display(), "failed to write proxy error dump");
+            } else {
+                tracing::info!(path = %path.display(), kind, profile, "proxy error dump written");
+            }
+        }
+        Err(err) => tracing::warn!(error = %err, "failed to serialize proxy error dump"),
+    }
 }
 
 /// Extract assistant text from an Anthropic-format response and store for sharing.
@@ -764,6 +1031,67 @@ fn json_text_block(text: String) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn test_responses_preflight_detects_context_overflow() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window\"}}\n\n",
+        ))]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+
+        assert!(preflight.context_overflow);
+        assert!(String::from_utf8_lossy(&preflight.buffered).contains("context_length_exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_responses_preflight_ignores_event_names_inside_metadata() {
+        let metadata = format!(
+            "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"instructions\":\"mentions response.completed but is not an event\"}}}}\n\n{}",
+            "x".repeat(70_000)
+        );
+        let input = futures::stream::iter(vec![
+            Ok(Bytes::from(metadata)),
+            Ok(Bytes::from(
+                "event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window\"}}\n\n",
+            )),
+        ]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+
+        assert!(preflight.context_overflow);
+        assert!(String::from_utf8_lossy(&preflight.buffered).contains("context_length_exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_responses_preflight_replays_normal_stream() {
+        let input = futures::stream::iter(vec![
+            Ok(Bytes::from(
+                "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+            )),
+            Ok(Bytes::from("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")),
+        ]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+        assert!(!preflight.context_overflow);
+
+        let chunks = preflight
+            .stream
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|chunk| String::from_utf8(chunk.unwrap().to_vec()).unwrap())
+            .collect::<String>();
+
+        assert!(chunks.contains("response.output_text.delta"));
+        assert!(chunks.contains("response.completed"));
+    }
 
     // ── truncate_at_char_boundary ──
 

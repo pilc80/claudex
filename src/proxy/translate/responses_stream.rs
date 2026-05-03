@@ -137,6 +137,24 @@ fn format_error_event(message: &str) -> String {
     )
 }
 
+fn format_context_overflow_event() -> String {
+    format_sse(
+        "error",
+        &json!({
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "prompt is too long",
+            }
+        }),
+    )
+}
+
+fn is_context_overflow_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("context window") && lower.contains("exceeds")
+}
+
 struct ResponsesStreamState {
     tool_name_map: ToolNameMap,
     block_index: usize,
@@ -407,7 +425,11 @@ impl ResponsesStreamState {
                     .and_then(|v| v.as_str())
                     .or_else(|| json.pointer("/error/message").and_then(|v| v.as_str()))
                     .unwrap_or("upstream response failed");
-                vec![format_error_event(message)]
+                if is_context_overflow_error(message) {
+                    vec![format_context_overflow_event()]
+                } else {
+                    vec![format_error_event(message)]
+                }
             }
             "codex.rate_limits" => {
                 let message = json
@@ -669,6 +691,19 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("event: error"));
         assert!(events[0].contains("rate limited"));
+    }
+
+    #[test]
+    fn test_context_overflow_translates_to_claude_compact_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state.process_line(
+            r#"data: {"type":"response.failed","response":{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("invalid_request_error"));
+        assert!(events[0].contains("prompt is too long"));
+        assert!(!events[0].contains("Your input exceeds the context window"));
     }
 
     #[test]
