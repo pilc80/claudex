@@ -86,11 +86,8 @@ where
         }
 
         // Finalize: close any open block and send message_delta + message_stop
-        if state.block_started {
-            yield Ok(Bytes::from(format_sse("content_block_stop", &json!({
-                "type": "content_block_stop",
-                "index": state.block_index,
-            }))));
+        if let Some(event) = state.stop_current_block() {
+            yield Ok(Bytes::from(event));
         }
 
         let stop_reason = if state.has_tool_use { "tool_use" } else { &state.stop_reason };
@@ -141,6 +138,7 @@ struct ResponsesStreamState {
     tool_name_map: ToolNameMap,
     block_index: usize,
     block_started: bool,
+    current_block: Option<ContentBlockKind>,
     has_tool_use: bool,
     stop_reason: String,
     output_tokens: u64,
@@ -150,12 +148,19 @@ struct ResponsesStreamState {
     last_event_type: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContentBlockKind {
+    Text,
+    ToolUse,
+}
+
 impl ResponsesStreamState {
     fn new(tool_name_map: ToolNameMap) -> Self {
         Self {
             tool_name_map,
             block_index: 0,
             block_started: false,
+            current_block: None,
             has_tool_use: false,
             stop_reason: "end_turn".to_string(),
             output_tokens: 0,
@@ -222,6 +227,11 @@ impl ResponsesStreamState {
                 self.saw_text_delta = true;
 
                 let mut events = Vec::new();
+                if self.current_block == Some(ContentBlockKind::ToolUse) {
+                    if let Some(event) = self.stop_current_block() {
+                        events.push(event);
+                    }
+                }
 
                 // Start content block if not started
                 if !self.block_started {
@@ -234,6 +244,7 @@ impl ResponsesStreamState {
                         }),
                     ));
                     self.block_started = true;
+                    self.current_block = Some(ContentBlockKind::Text);
                 }
 
                 events.push(format_sse(
@@ -248,17 +259,8 @@ impl ResponsesStreamState {
                 events
             }
             "response.output_text.done" | "response.content_part.done" => {
-                if self.block_started {
-                    self.block_started = false;
-                    let event = format_sse(
-                        "content_block_stop",
-                        &json!({
-                            "type": "content_block_stop",
-                            "index": self.block_index,
-                        }),
-                    );
-                    self.block_index += 1;
-                    return vec![event];
+                if self.current_block == Some(ContentBlockKind::Text) {
+                    return self.stop_current_block().into_iter().collect();
                 }
                 vec![]
             }
@@ -300,16 +302,8 @@ impl ResponsesStreamState {
 
                     // Close any previous block
                     let mut events = Vec::new();
-                    if self.block_started {
-                        events.push(format_sse(
-                            "content_block_stop",
-                            &json!({
-                                "type": "content_block_stop",
-                                "index": self.block_index,
-                            }),
-                        ));
-                        self.block_index += 1;
-                        self.block_started = false;
+                    if let Some(event) = self.stop_current_block() {
+                        events.push(event);
                     }
 
                     events.push(format_sse(
@@ -326,13 +320,14 @@ impl ResponsesStreamState {
                         }),
                     ));
                     self.block_started = true;
+                    self.current_block = Some(ContentBlockKind::ToolUse);
 
                     return events;
                 }
                 vec![]
             }
             "response.function_call_arguments.delta" => {
-                if !self.block_started || !self.has_tool_use {
+                if self.current_block != Some(ContentBlockKind::ToolUse) {
                     tracing::warn!(
                         last_event_type = ?self.last_event_type,
                         "ignoring orphan Responses function-call argument delta"
@@ -354,17 +349,8 @@ impl ResponsesStreamState {
                 )]
             }
             "response.function_call_arguments.done" => {
-                if self.block_started {
-                    self.block_started = false;
-                    let event = format_sse(
-                        "content_block_stop",
-                        &json!({
-                            "type": "content_block_stop",
-                            "index": self.block_index,
-                        }),
-                    );
-                    self.block_index += 1;
-                    return vec![event];
+                if self.current_block == Some(ContentBlockKind::ToolUse) {
+                    return self.stop_current_block().into_iter().collect();
                 }
                 vec![]
             }
@@ -424,7 +410,11 @@ impl ResponsesStreamState {
     }
 
     fn emit_text_block(&mut self, text: &str) -> Vec<String> {
-        let events = vec![
+        let mut events = Vec::new();
+        if let Some(event) = self.stop_current_block() {
+            events.push(event);
+        }
+        events.extend([
             format_sse(
                 "content_block_start",
                 &json!({
@@ -441,10 +431,30 @@ impl ResponsesStreamState {
                     "delta": {"type": "text_delta", "text": text},
                 }),
             ),
-        ];
+        ]);
         self.block_started = true;
+        self.current_block = Some(ContentBlockKind::Text);
         self.saw_text_delta = true;
         events
+    }
+
+    fn stop_current_block(&mut self) -> Option<String> {
+        if !self.block_started {
+            self.current_block = None;
+            return None;
+        }
+
+        let event = format_sse(
+            "content_block_stop",
+            &json!({
+                "type": "content_block_stop",
+                "index": self.block_index,
+            }),
+        );
+        self.block_started = false;
+        self.current_block = None;
+        self.block_index += 1;
+        Some(event)
     }
 }
 
@@ -628,5 +638,26 @@ mod tests {
         assert!(!text.contains("message_start"));
         assert!(!text.contains("content_block_delta"));
         assert!(stream.next().await.is_none());
+    }
+
+    #[test]
+    fn test_text_delta_after_open_tool_call_starts_new_text_block() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+
+        let tool_start = state.process_line(
+            r#"data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"bash"}}"#,
+        );
+        assert_eq!(tool_start.len(), 1);
+        assert!(tool_start[0].contains("\"tool_use\""));
+
+        let text_events =
+            state.process_line(r#"data: {"type":"response.output_text.delta","delta":"done"}"#);
+
+        assert_eq!(text_events.len(), 3);
+        assert!(text_events[0].contains("content_block_stop"));
+        assert!(text_events[1].contains("content_block_start"));
+        assert!(text_events[1].contains("\"text\""));
+        assert!(text_events[2].contains("text_delta"));
+        assert!(text_events[2].contains("done"));
     }
 }
