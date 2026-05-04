@@ -400,7 +400,10 @@ impl ResponsesStreamState {
             }
             "response.function_call_arguments.done" => {
                 if self.block_started {
-                    let arguments = json.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                    let arguments = json
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
                     let input = sanitize_tool_input(
                         self.current_tool_name.as_deref().unwrap_or(""),
                         serde_json::from_str(arguments).unwrap_or_else(|_| json!({})),
