@@ -19,9 +19,9 @@ fn windows_installer_uses_safe_web_wrappers() {
 fn unix_installer_downloads_with_progress_timeout_and_retries() {
     let script = fs::read_to_string("install.sh").expect("install.sh should exist");
 
-    assert!(script.contains("--progress-bar"));
     assert!(script.contains("--connect-timeout"));
     assert!(script.contains("--retry"));
+    assert!(!script.contains("--progress-bar"));
     assert!(script.contains("Downloading release manifest"));
     assert!(script.contains("Downloading release archive"));
     assert!(script.contains("Downloaded release manifest"));
@@ -50,6 +50,17 @@ fn unix_installer_avoids_global_dest_variable_collision() {
     assert!(script.contains("binary_dest=\"$INSTALL_DIR/claudex\""));
     assert!(script.contains("mv \"$src\" \"$binary_dest\""));
     assert!(!script.contains("dest=\"$1\""));
+}
+
+#[test]
+fn unix_installer_explains_running_proxy_action() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("Installation complete."));
+    assert!(script.contains("Action needed:"));
+    assert!(script.contains("The old proxy is still running"));
+    assert!(script.contains("claudex-config proxy stop"));
+    assert!(script.contains("CLAUDEX_PROFILE=$PROFILE_NAME claudex"));
 }
 
 #[test]

@@ -155,7 +155,7 @@ download_file() {
 
     if has_cmd curl; then
         if [ "$mode" = "progress" ]; then
-            curl --fail --location --show-error --progress-bar \
+            curl --fail --location --show-error \
                 --connect-timeout 20 --retry 3 --retry-delay 2 \
                 -H "User-Agent: claudex-installer" "$url" -o "$output"
         else
@@ -504,7 +504,12 @@ maybe_stop_proxy() {
                     "$INSTALLED_BIN" proxy stop || true
                 fi
             else
-                say "Leaving proxy running. Restart it later to load the new binary."
+                say ""
+                say "Action needed:"
+                say "The old proxy is still running and may keep using the previous binary."
+                say "Restart it when convenient to use the newly installed version:"
+                say "  claudex-config proxy stop"
+                say "  CLAUDEX_PROFILE=$PROFILE_NAME claudex"
             fi
             ;;
     esac
@@ -576,6 +581,7 @@ main() {
         exit 0
     fi
 
+    say "Installation complete."
     say "Installed claudex to $INSTALLED_BIN"
     say "Installed claudex-config to $INSTALLED_CONFIG_BIN"
     "$INSTALLED_CONFIG_BIN" --version 2>/dev/null || true
