@@ -59,8 +59,16 @@ fn unix_installer_explains_running_proxy_action() {
     assert!(script.contains("Installation complete."));
     assert!(script.contains("Action needed:"));
     assert!(script.contains("The old proxy is still running"));
-    assert!(script.contains("claudex-config proxy stop"));
-    assert!(script.contains("CLAUDEX_PROFILE=$PROFILE_NAME claudex"));
+    let action_block = script
+        .split("Action needed:")
+        .nth(1)
+        .expect("installer should explain post-install proxy action")
+        .split("maybe_setup_chatgpt")
+        .next()
+        .unwrap_or("");
+    assert!(action_block.contains("claudex-config proxy stop"));
+    assert!(action_block.contains("  claudex"));
+    assert!(!action_block.contains("CLAUDEX_PROFILE=$PROFILE_NAME claudex"));
 }
 
 #[test]

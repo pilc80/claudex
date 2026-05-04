@@ -372,8 +372,10 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
                         .get("arguments")
                         .and_then(|a| a.as_str())
                         .unwrap_or("{}");
-                    let input: Value =
-                        serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+                    let input = sanitize_tool_input(
+                        &original_name,
+                        serde_json::from_str(arguments).unwrap_or_else(|_| json!({})),
+                    );
 
                     content.push(json!({
                         "type": "tool_use",
@@ -441,6 +443,25 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
         "stop_sequence": null,
         "usage": anthropic_usage,
     }))
+}
+
+fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
+    if tool_name == "Read" {
+        sanitize_read_pages(&mut input);
+    }
+    input
+}
+
+fn sanitize_read_pages(input: &mut Value) {
+    let Some(obj) = input.as_object_mut() else {
+        return;
+    };
+    let pages = obj.get("pages").and_then(|v| v.as_str());
+    let file_path = obj.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+    let is_pdf = file_path.to_ascii_lowercase().ends_with(".pdf");
+    if pages == Some("") || !is_pdf {
+        obj.remove("pages");
+    }
 }
 
 fn convert_image_block(block: &Value) -> Option<Value> {
@@ -642,6 +663,44 @@ mod tests {
         let tools = body["tools"].as_array().unwrap();
         assert_eq!(tools[0]["type"], "function");
         assert_eq!(tools[0]["name"], "get_weather");
+    }
+
+    #[test]
+    fn test_read_tool_use_strips_invalid_pages() {
+        let resp = json!({
+            "id": "resp_123",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_read",
+                "name": "Read",
+                "arguments": "{\"file_path\":\"/tmp/a.md\",\"limit\":10,\"offset\":0,\"pages\":\"\"}"
+            }]
+        });
+
+        let result = responses_to_anthropic(&resp, &ToolNameMap::new()).unwrap();
+        let input = &result["content"][0]["input"];
+        assert_eq!(input["file_path"], "/tmp/a.md");
+        assert!(input.get("pages").is_none());
+    }
+
+    #[test]
+    fn test_read_pdf_tool_use_keeps_pages() {
+        let resp = json!({
+            "id": "resp_123",
+            "model": "gpt-5.5",
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_read",
+                "name": "Read",
+                "arguments": "{\"file_path\":\"/tmp/a.pdf\",\"pages\":\"1-2\"}"
+            }]
+        });
+
+        let result = responses_to_anthropic(&resp, &ToolNameMap::new()).unwrap();
+        assert_eq!(result["content"][0]["input"]["pages"], "1-2");
     }
 
     #[test]

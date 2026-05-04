@@ -155,6 +155,25 @@ fn is_context_overflow_error(message: &str) -> bool {
     lower.contains("context window") && lower.contains("exceeds")
 }
 
+fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
+    if tool_name == "Read" {
+        sanitize_read_pages(&mut input);
+    }
+    input
+}
+
+fn sanitize_read_pages(input: &mut Value) {
+    let Some(obj) = input.as_object_mut() else {
+        return;
+    };
+    let pages = obj.get("pages").and_then(|v| v.as_str());
+    let file_path = obj.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+    let is_pdf = file_path.to_ascii_lowercase().ends_with(".pdf");
+    if pages == Some("") || !is_pdf {
+        obj.remove("pages");
+    }
+}
+
 struct ResponsesStreamState {
     tool_name_map: ToolNameMap,
     block_index: usize,
@@ -166,6 +185,8 @@ struct ResponsesStreamState {
     saw_upstream_data: bool,
     pending_event_type: Option<String>,
     last_event_type: Option<String>,
+    current_tool_name: Option<String>,
+    current_tool_saw_argument_delta: bool,
 }
 
 impl ResponsesStreamState {
@@ -181,6 +202,8 @@ impl ResponsesStreamState {
             saw_upstream_data: false,
             pending_event_type: None,
             last_event_type: None,
+            current_tool_name: None,
+            current_tool_saw_argument_delta: false,
         }
     }
 
@@ -312,6 +335,8 @@ impl ResponsesStreamState {
                         .get(name)
                         .cloned()
                         .unwrap_or(name.to_string());
+                    self.current_tool_name = Some(original_name.clone());
+                    self.current_tool_saw_argument_delta = false;
                     let call_id = item
                         .get("call_id")
                         .and_then(|i| i.as_str())
@@ -362,6 +387,7 @@ impl ResponsesStreamState {
                 if delta.is_empty() {
                     return vec![];
                 }
+                self.current_tool_saw_argument_delta = true;
 
                 vec![format_sse(
                     "content_block_delta",
@@ -374,16 +400,37 @@ impl ResponsesStreamState {
             }
             "response.function_call_arguments.done" => {
                 if self.block_started {
+                    let arguments = json.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                    let input = sanitize_tool_input(
+                        self.current_tool_name.as_deref().unwrap_or(""),
+                        serde_json::from_str(arguments).unwrap_or_else(|_| json!({})),
+                    );
+                    let mut events = Vec::new();
+                    if !self.current_tool_saw_argument_delta && input != json!({}) {
+                        events.push(format_sse(
+                            "content_block_delta",
+                            &json!({
+                                "type": "content_block_delta",
+                                "index": self.block_index,
+                                "delta": {
+                                    "type": "input_json_delta",
+                                    "partial_json": serde_json::to_string(&input).unwrap_or_default(),
+                                },
+                            }),
+                        ));
+                    }
                     self.block_started = false;
-                    let event = format_sse(
+                    self.current_tool_name = None;
+                    self.current_tool_saw_argument_delta = false;
+                    events.push(format_sse(
                         "content_block_stop",
                         &json!({
                             "type": "content_block_stop",
                             "index": self.block_index,
                         }),
-                    );
+                    ));
                     self.block_index += 1;
-                    return vec![event];
+                    return events;
                 }
                 vec![]
             }
@@ -660,6 +707,33 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("content_block_stop"));
         assert!(state.has_tool_use);
+    }
+
+    #[test]
+    fn test_read_function_call_arguments_done_strips_invalid_pages() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"Read","arguments":"","status":"in_progress"}}"#,
+        );
+        let events = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.done","arguments":"{\"file_path\":\"/tmp/a.md\",\"pages\":\"\",\"limit\":10}"}"#,
+        );
+        let output = events.join("\n");
+        assert!(output.contains("content_block_delta"));
+        assert!(output.contains("/tmp/a.md"));
+        assert!(!output.contains("pages"));
+    }
+
+    #[test]
+    fn test_read_pdf_function_call_arguments_done_keeps_pages() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"Read","arguments":"","status":"in_progress"}}"#,
+        );
+        let events = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.done","arguments":"{\"file_path\":\"/tmp/a.pdf\",\"pages\":\"1-2\"}"}"#,
+        );
+        assert!(events.join("\n").contains("pages"));
     }
 
     #[test]

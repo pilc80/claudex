@@ -509,7 +509,7 @@ maybe_stop_proxy() {
                 say "The old proxy is still running and may keep using the previous binary."
                 say "Restart it when convenient to use the newly installed version:"
                 say "  claudex-config proxy stop"
-                say "  CLAUDEX_PROFILE=$PROFILE_NAME claudex"
+                say "  claudex"
             fi
             ;;
     esac
