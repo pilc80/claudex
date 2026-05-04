@@ -44,7 +44,8 @@ provider list, smart routing, config discovery, and non-Codex providers:
 - Upstream docs: https://stringke.github.io/claudex/
 
 This README documents the fork-specific Codex/OpenAI Responses work and local
-setup details.
+setup details. The OpenAI Responses / ChatGPT/Codex path is the main validation
+target; non-Responses providers stay close to upstream Claudex behavior.
 
 ## Goal
 
@@ -87,15 +88,10 @@ intentionally unsupported.
 - ✅ `/v1/models` exposes Claude model slots without duplicates.
 - ✅ ChatGPT/Codex profiles intentionally map every Claude model slot to
   `gpt-5.5` by default because this account rejects `gpt-5.5-mini`.
-- ☑️ Claude Code `WebFetch` works when model slots avoid account-unsupported
-  models.
-- ☑️ Claude Code visible `Web Search` can run as a client-side tool, but
-  hosted Anthropic `web_search_20250305` is not implemented proxy-side.
-- ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
-- ❌ Raw Anthropic requests without `system`/instructions are rejected by Codex.
-- ❌ Codex hidden reasoning output is not displayed as Claude thinking.
-- ❌ Anthropic-hosted server tools are not implemented proxy-side.
-- ❌ Already-running proxies keep their old binary after symlink changes.
+- ✅ Claude Code visible `Web Search` works as a client-side tool.
+- ℹ️ Server-side Anthropic-hosted tools are intentionally out of proxy scope;
+  claudex keeps Claude Code's local tool path instead.
+- ℹ️ Codex hidden reasoning is not exposed as Claude Code thinking blocks.
 
 Model aliases are an account-compatibility feature, not a bug workaround. Claude
 Code may choose a haiku/sonnet/opus slot internally, but ChatGPT/Codex accounts
