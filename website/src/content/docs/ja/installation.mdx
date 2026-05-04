@@ -10,13 +10,13 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 <Tabs>
   <TabItem label="ワンライナー" icon="terminal">
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+    curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
     インストールスクリプトが OS とアーキテクチャを自動検出し、GitHub から最新リリースをダウンロードして `~/.local/bin/claudex` にインストールします。
 
     インストールディレクトリを変更する場合:
     ```bash
-    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
   </TabItem>
   <TabItem label="Cargo" icon="seti:rust">

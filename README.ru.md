@@ -50,7 +50,7 @@ Claudex — единый прокси, позволяющий [Claude Code](http
 
 ```bash
 # Однострочная установка (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # Из исходников
 cargo install --git https://github.com/pilc80/claudex

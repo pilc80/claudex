@@ -50,7 +50,7 @@ Claudex 是一个统一代理，通过自动协议翻译让 [Claude Code](https:
 
 ```bash
 # 一键安装（Linux / macOS）
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # 从源码构建
 cargo install --git https://github.com/pilc80/claudex

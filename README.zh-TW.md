@@ -50,7 +50,7 @@ Claudex 是一個統一的代理層，讓 [Claude Code](https://docs.anthropic.c
 
 ```bash
 # 一鍵安裝（Linux / macOS）
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # 從原始碼編譯
 cargo install --git https://github.com/pilc80/claudex

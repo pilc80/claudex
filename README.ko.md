@@ -50,7 +50,7 @@ Claudex는 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)가 자�
 
 ```bash
 # 원라이너 (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # 소스에서 빌드
 cargo install --git https://github.com/pilc80/claudex

@@ -10,13 +10,13 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 <Tabs>
   <TabItem label="一键安装" icon="terminal">
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+    curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
     安装脚本会自动检测你的操作系统和架构，从 GitHub 下载最新版本，并安装到 `~/.local/bin/claudex`。
 
     自定义安装目录：
     ```bash
-    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+    CLAUDEX_INSTALL_DIR=/usr/local/bin curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
     ```
   </TabItem>
   <TabItem label="Cargo" icon="seti:rust">

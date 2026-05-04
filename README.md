@@ -75,7 +75,7 @@ Release installer:
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # Windows PowerShell
 irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex

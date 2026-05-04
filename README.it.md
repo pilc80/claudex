@@ -50,7 +50,7 @@ Claudex è un proxy unificato che consente a [Claude Code](https://docs.anthropi
 
 ```bash
 # Installazione in un comando (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
 
 # Dal sorgente
 cargo install --git https://github.com/pilc80/claudex
