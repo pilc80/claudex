@@ -3,11 +3,11 @@ name = "claudex"
 version = "0.9.4"
 edition = "2021"
 autobins = false
-description = "Multi-instance Claude Code manager with intelligent translation proxy"
+description = "Claude Code proxy for ChatGPT/Codex subscriptions via OAuth"
 license = "MIT"
 repository = "https://github.com/pilc80/claudex"
 homepage = "https://claudex.space"
-keywords = ["claude", "proxy", "llm", "ai", "translation"]
+keywords = ["claude-code", "chatgpt", "codex", "oauth", "proxy"]
 categories = ["command-line-utilities", "web-programming"]
 
 [[bin]]

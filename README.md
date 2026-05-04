@@ -1,4 +1,38 @@
-# Claudex Codex/OpenAI Responses Fork
+# claudex — Claude Code proxy for ChatGPT/Codex
+
+Use your ChatGPT Plus/Pro or Codex subscription in Claude Code via OAuth, with
+no OpenAI API key.
+
+Claudex is a high-fidelity Claude Code -> OpenAI Responses proxy for
+ChatGPT/Codex users. It preserves Claude Code workflows across images, files,
+tool results, `/compact`, context-limit recovery, prompt-cache usage mapping,
+and hardened streaming errors.
+
+```bash
+curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash
+# When prompted, choose ChatGPT/Codex OAuth setup.
+claudex
+```
+
+## Why this fork?
+
+Most Claude Code -> Codex proxies are fine for text-only request routing. This
+fork focuses on preserving full Claude Code workflows when OpenAI Responses/Codex
+behaves differently from Anthropic Messages:
+
+- `/compact` works with streamed and non-streamed Responses shapes.
+- claudex intentionally does not invent cross-protocol auto-compaction. When
+  Codex says the context window is full, claudex returns Claude Code's normal
+  context-limit prompt so users can run `/compact` or `/clear`.
+- Current-turn images and current tool-result images are preserved.
+- Old base64 image history is pruned before oversized requests; upstream
+  `v0.2.4` resends historical images and can hit the 32 MB request body limit.
+- Document/file blocks are mapped where Responses can represent them.
+- Prompt cache keys and cached-token usage are mapped back to Claude Code.
+- Upstream `429`, rate-limit, and failure stream events are hardened.
+- Error-only proxy dumps help diagnose upstream OpenAI and Claude-visible errors.
+
+## Fork and upstream scope
 
 This repository is a fork of [StringKe/claudex](https://github.com/StringKe/claudex),
 based on upstream `v0.2.4`.
@@ -9,13 +43,13 @@ provider list, smart routing, config discovery, and non-Codex providers:
 - Upstream README: https://github.com/StringKe/claudex
 - Upstream docs: https://stringke.github.io/claudex/
 
-This README documents only the fork-specific Codex/OpenAI Responses work and
-local setup details.
+This README documents the fork-specific Codex/OpenAI Responses work and local
+setup details.
 
 ## Goal
 
-Make OpenAI/ChatGPT/Codex models run from Claude Code at the best practical
-quality: preserve Claude workflows, translate the Anthropic Messages protocol
+Make OpenAI/ChatGPT/Codex models run from Claude Code with high practical
+fidelity: preserve Claude workflows, translate the Anthropic Messages protocol
 accurately, and work around Responses/Codex endpoint limits where possible.
 
 The main target path is:
@@ -51,23 +85,55 @@ intentionally unsupported.
 - ✅ Upstream `429` retry with capped `Retry-After` delay.
 - ✅ Responses stream hardening for failure/rate-limit events.
 - ✅ `/v1/models` exposes Claude model slots without duplicates.
-- ☑️ Claude Code `WebFetch` works when model slots avoid unsupported mini models.
-- ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
+- ✅ ChatGPT/Codex profiles intentionally map every Claude model slot to
+  `gpt-5.5` by default because this account rejects `gpt-5.5-mini`.
+- ☑️ Claude Code `WebFetch` works when model slots avoid account-unsupported
+  models.
 - ☑️ Claude Code visible `Web Search` can run as a client-side tool, but
   hosted Anthropic `web_search_20250305` is not implemented proxy-side.
-- ❌ `gpt-5.5-mini` is rejected by this ChatGPT/Codex account.
+- ⚠️ Non-OpenAIResponses providers are kept close to upstream paths.
 - ❌ Raw Anthropic requests without `system`/instructions are rejected by Codex.
 - ❌ Codex hidden reasoning output is not displayed as Claude thinking.
 - ❌ Anthropic-hosted server tools are not implemented proxy-side.
 - ❌ Already-running proxies keep their old binary after symlink changes.
 
-If a model alias returns `400 model is not supported`, map that Claude slot to a
-model accepted by your ChatGPT/Codex account.
+Model aliases are an account-compatibility feature, not a bug workaround. Claude
+Code may choose a haiku/sonnet/opus slot internally, but ChatGPT/Codex accounts
+do not necessarily expose separate mini/pro/pro-tier model names through the
+Codex backend. This account currently returns `400 model is not supported` for
+`gpt-5.5-mini`, so the safe default maps every slot to `gpt-5.5`. If your
+account accepts a different model, put that model in `[profiles.models]`.
 
 When Codex reports that the request exceeds the model context window, claudex
 returns Claude Code's normal context-limit error shape instead of streaming a
 malformed proxy response. The user can then run `/compact` or `/clear` from
-Claude Code; claudex does not attempt fragile cross-protocol auto-compaction.
+Claude Code.
+
+claudex does not attempt fragile cross-protocol auto-compaction on purpose:
+Claude Code's compaction behavior and OpenAI Responses/Codex error shapes can
+change independently. Catching the context-limit signal and handing control back
+to Claude Code is simpler, safer, and less likely to break on future API drift.
+
+## When to choose this fork
+
+Choose this fork if you want Claude Code to use a ChatGPT Plus/Pro or Codex
+subscription through OAuth and you care about full Claude Code workflow fidelity,
+not just text-only request routing:
+
+- `/compact` and context-limit recovery.
+- Current-turn images, current tool-result images, and historical image pruning
+  to avoid repeatedly resending base64 images until the request exceeds 32 MB.
+- Document/file block mapping.
+- Prompt-cache usage mapping.
+- Hardened OpenAI Responses streaming, rate-limit, and failure events.
+- Release installer checksums, latest-version validation, and stale-proxy restart
+  guidance.
+
+Use upstream Claudex if you primarily need a broad multi-provider manager and
+are not relying on image-heavy Codex workflows. Use simpler proxies for text-only
+request routing. Use this fork for full Claude Code workflow fidelity on
+ChatGPT/Codex: images, tool-result images, files, `/compact`, context-limit
+recovery, prompt-cache usage, model-slot mapping, and hardened Responses streams.
 
 ## Install
 
@@ -81,11 +147,15 @@ curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/in
 irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex
 ```
 
-It downloads release assets from `pilc80/claudex`. If no matching release asset
-exists for your platform, the Unix installer can fall back to `cargo install`.
-The installers can also stop an old running proxy and optionally run ChatGPT/Codex
-OAuth setup. Release archives are verified against their `.sha256` files before
-installation.
+The installer downloads the latest release assets from `pilc80/claudex`, verifies
+SHA256 checksums from the release manifest or `.sha256` files, installs both
+`claudex` and `claudex-config`, checks that the latest version is the one found
+in `PATH`, and can optionally set up a ChatGPT/Codex OAuth profile. If a running
+proxy still uses the old binary, the installer can stop it or prints the exact
+restart commands.
+
+If no matching release asset exists for your platform, the installer can fall
+back to `cargo install` unless source fallback is disabled.
 
 Safer Windows flow:
 
@@ -101,18 +171,22 @@ Useful installer options:
 # macOS / Linux
 sh install.sh --dry-run
 sh install.sh --yes --no-setup
+sh install.sh --profile codex-sub
 sh install.sh --install-dir "$HOME/.local/bin"
+sh install.sh --no-source-fallback
 
 # Windows PowerShell
 .\install.ps1 -DryRun
 .\install.ps1 -Yes -NoSetup
+.\install.ps1 -Profile codex-sub
 .\install.ps1 -InstallDir "$HOME\.local\bin"
+.\install.ps1 -NoSourceFallback
 ```
 
 Source install:
 
 ```bash
-cargo install --git https://github.com/pilc80/claudex
+cargo install --git https://github.com/pilc80/claudex --force
 ```
 
 For a private SSH checkout:
@@ -140,26 +214,47 @@ This fork intentionally separates the Claude-compatible launcher from setup:
 ```text
 claudex
   Claude-compatible launcher. It passes all arguments to Claude Code unchanged.
+  After a `codex-sub` profile exists, plain `claudex` uses it by default.
 
 claudex-config
   Claudex setup and management: auth, proxy, config/profile, update, sets,
-  and dashboard commands.
+  dashboard, and the inherited `run <profile>` command family.
 ```
+
+This keeps `claudex` close to `claude` at the launcher layer: flags such as
+`claudex --resume <session-id>` are forwarded to Claude Code instead of being
+claimed by the management CLI. The previous Claudex management behavior remains
+available through `claudex-config`, including profiles, proxy control, OAuth,
+configuration sets, dashboard, updates, and `claudex-config run <profile>`.
 
 Normal launch options come from environment variables:
 
 ```bash
-CLAUDEX_PROFILE=codex-sub claudex --resume <session-id>
-CLAUDEX_PROFILE=codex-sub CLAUDEX_MODEL=gpt-5.5 claudex
-CLAUDEX_PROFILE=codex-sub CLAUDEX_HYPERLINKS=on claudex
+claudex --resume <session-id>
+CLAUDEX_MODEL=gpt-5.5 claudex
+CLAUDEX_HYPERLINKS=on claudex
+CLAUDEX_PROFILE=other-profile claudex
 ```
 
 `CLAUDEX_PROFILE` defaults to `codex-sub` when that profile exists, otherwise
 to the first enabled profile. `CLAUDEX_CONFIG` can point at a custom config file.
 
-## ChatGPT/Codex Setup
+## ChatGPT/Codex OAuth Setup
 
-Create or edit a profile like this:
+The installer can offer this setup interactively. To run it manually:
+
+```bash
+claudex-config auth login chatgpt --profile codex-sub
+claudex
+```
+
+Headless device-code login:
+
+```bash
+claudex-config auth login chatgpt --profile codex-sub --force --headless
+```
+
+Manual profile shape:
 
 ```toml
 [[profiles]]
@@ -181,21 +276,10 @@ sonnet = "gpt-5.5"
 opus = "gpt-5.5"
 ```
 
-Keep `haiku = "gpt-5.5"` unless your account accepts `gpt-5.5-mini`.
-
-Login and run:
-
-```bash
-claudex-config auth login chatgpt --profile codex-sub
-CLAUDEX_PROFILE=codex-sub claudex
-```
-
-Headless login:
-
-```bash
-claudex-config auth login chatgpt --profile codex-sub --force --headless
-```
-
+Keep `haiku = "gpt-5.5"` for ChatGPT/Codex unless you have tested that your
+account accepts another model. This is intentional: Claude Code may ask for a
+haiku slot, but the Codex backend can still reject `gpt-5.5-mini` for ChatGPT
+subscription accounts with `400 model is not supported`.
 If Claude Code selects a haiku/sonnet/opus slot, claudex sends the mapped model
 from `[profiles.models]`. Keep those aliases on models your account can use.
 
@@ -223,7 +307,7 @@ Restart the proxy after deploying a new binary:
 
 ```bash
 claudex-config proxy stop
-CLAUDEX_PROFILE=codex-sub claudex
+claudex
 ```
 
 Changing the symlink does not update already-running processes. If an old proxy
