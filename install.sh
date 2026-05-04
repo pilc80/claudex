@@ -317,35 +317,35 @@ parse_manifest_for_target() {
 }
 
 backup_existing() {
-    dest="$1"
-    if [ -e "$dest" ] || [ -L "$dest" ]; then
-        backup="${dest}.backup.$(date +%Y%m%d%H%M%S)"
-        cp -p "$dest" "$backup" 2>/dev/null || true
+    backup_path="$1"
+    if [ -e "$backup_path" ] || [ -L "$backup_path" ]; then
+        backup="${backup_path}.backup.$(date +%Y%m%d%H%M%S)"
+        cp -p "$backup_path" "$backup" 2>/dev/null || true
         say "Backed up existing binary to $backup"
     fi
 }
 
 install_binary() {
     src="$1"
-    dest="$INSTALL_DIR/claudex"
+    binary_dest="$INSTALL_DIR/claudex"
     config_dest="$INSTALL_DIR/claudex-config"
 
     mkdir -p "$INSTALL_DIR"
     if is_yes "$DRY_RUN"; then
-        say "Dry run: would install $src to $dest"
+        say "Dry run: would install $src to $binary_dest"
         say "Dry run: would install claudex-config to $config_dest"
-        INSTALLED_BIN="$dest"
+        INSTALLED_BIN="$binary_dest"
         INSTALLED_CONFIG_BIN="$config_dest"
         return 0
     fi
-    backup_existing "$dest"
+    backup_existing "$binary_dest"
     backup_existing "$config_dest"
-    rm -f "$dest"
-    mv "$src" "$dest"
-    chmod +x "$dest"
+    rm -f "$binary_dest"
+    mv "$src" "$binary_dest"
+    chmod +x "$binary_dest"
     rm -f "$config_dest"
     ln -s "claudex" "$config_dest"
-    INSTALLED_BIN="$dest"
+    INSTALLED_BIN="$binary_dest"
     INSTALLED_CONFIG_BIN="$config_dest"
 }
 
@@ -363,6 +363,7 @@ install_from_release() {
 
     say "Downloading release manifest: $manifest_url"
     if download_file "$manifest_url" "$tmpdir/manifest.json" >/dev/null 2>&1; then
+        say "Downloaded release manifest"
         EXPECTED_VERSION="$(parse_manifest_version "$tmpdir/manifest.json")"
         if [ -z "$EXPECTED_VERSION" ]; then
             err "release manifest does not contain a version"
@@ -398,7 +399,6 @@ install_from_release() {
         checksum_url="${url}.sha256"
     fi
 
-    say "Downloading: $url"
     if [ -n "$expected_sha" ]; then
         say "Expected SHA256: $expected_sha"
     else
@@ -417,10 +417,13 @@ install_from_release() {
     checksum_file="$tmpdir/$archive_name.sha256"
     say "Downloading release archive: $url"
     download_file "$url" "$archive" progress
+    say "Downloaded release archive"
     if [ -n "$expected_sha" ]; then
         write_expected_checksum "$expected_sha" "$archive_name" "$checksum_file"
     else
+        say "Downloading checksum: $checksum_url"
         download_file "$checksum_url" "$checksum_file"
+        say "Downloaded checksum"
     fi
     verify_checksum "$archive" "$checksum_file"
     tar xzf "$archive" -C "$tmpdir"

@@ -24,6 +24,10 @@ fn unix_installer_downloads_with_progress_timeout_and_retries() {
     assert!(script.contains("--retry"));
     assert!(script.contains("Downloading release manifest"));
     assert!(script.contains("Downloading release archive"));
+    assert!(script.contains("Downloaded release manifest"));
+    assert!(script.contains("Downloaded release archive"));
+    assert!(script.contains("Downloaded checksum"));
+    assert!(!script.contains("say \"Downloading: $url\""));
 }
 
 #[test]
@@ -36,6 +40,16 @@ fn unix_installer_replaces_existing_path_install_and_verifies_latest() {
     assert!(script.contains("EXPECTED_VERSION"));
     assert!(script.contains("verify_installed_latest"));
     assert!(script.contains("PATH resolves claudex-config to"));
+}
+
+#[test]
+fn unix_installer_avoids_global_dest_variable_collision() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("backup_path=\"$1\""));
+    assert!(script.contains("binary_dest=\"$INSTALL_DIR/claudex\""));
+    assert!(script.contains("mv \"$src\" \"$binary_dest\""));
+    assert!(!script.contains("dest=\"$1\""));
 }
 
 #[test]
