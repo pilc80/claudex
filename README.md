@@ -29,11 +29,12 @@ behaves differently from Anthropic Messages:
   `v0.2.4` resends historical images and can hit the 32 MB request body limit.
 - Document/file blocks are mapped where Responses can represent them.
 - Prompt cache keys and cached-token usage are mapped back to Claude Code.
-- Native Claude Code error semantics: provider failures are mapped to the
-  closest Anthropic error type so Claude Code can compact, back off, or surface
-  auth/config failures the same way it would against Anthropic. Deterministic
-  request/account errors are returned directly; only retryable provider-health
-  failures feed failover and circuit breakers.
+- Native Claude Code error semantics: unlike lightweight proxies that often
+  collapse provider failures into generic 502s, claudex maps upstream failures
+  to the closest Anthropic error type so Claude Code can compact, back off, or
+  surface auth/config failures the same way it would against Anthropic.
+  Deterministic request/account errors are returned directly; only retryable
+  provider-health failures feed failover and circuit breakers.
 - Error-only proxy dumps help diagnose upstream OpenAI and Claude-visible errors.
 
 ## Fork and upstream scope
@@ -113,7 +114,9 @@ malformed proxy response. The user can then run `/compact` or `/clear` from
 Claude Code.
 
 Provider errors are translated by root cause to Anthropic-compatible error
-semantics. Context overflow triggers Claude Code's normal compact flow,
+semantics. Unlike lightweight Claude Code proxies that often collapse provider
+failures into generic 502s, claudex keeps the error actionable for Claude Code
+and the user: context overflow triggers Claude Code's normal compact flow,
 overloaded and rate-limited upstreams use Claude Code's native backoff/error UX,
 auth and permission failures stay recognizable, and local-model transport
 failures report the unavailable local server instead of a generic malformed
