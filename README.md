@@ -82,6 +82,9 @@ intentionally unsupported.
 - ✅ Native Claude Code error semantics for context overflow, overload, rate
   limits, auth/permission failures, request-size errors, and upstream transport
   failures.
+- ✅ Actionable proxy error classification: deterministic request/account errors
+  are returned directly, while only retryable provider-health failures feed
+  retry, failover, and circuit breakers.
 - ✅ Error-only proxy dumps for upstream OpenAI errors and Claude-visible
   translated errors.
 - ✅ Current-turn images, including optional `image_model` routing.
@@ -143,6 +146,9 @@ not just text-only request routing:
 - Document/file block mapping.
 - Prompt-cache usage mapping.
 - Hardened OpenAI Responses streaming, rate-limit, and failure events.
+- Actionable error classification: deterministic request/account errors stay
+  visible instead of poisoning circuit breakers, while retryable provider-health
+  failures still back off and fail over.
 - Release installer checksums, latest-version validation, and stale-proxy restart
   guidance.
 
