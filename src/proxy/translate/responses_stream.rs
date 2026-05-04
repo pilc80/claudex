@@ -3,6 +3,7 @@ use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use std::pin::Pin;
 
+use crate::proxy::error_translation::{self, AnthropicError};
 use crate::proxy::util::{format_sse, ToolNameMap};
 
 /// Translates an OpenAI Responses API SSE stream to Anthropic SSE format.
@@ -79,9 +80,10 @@ where
                 last_event_type = ?state.last_event_type,
                 "Responses stream ended without translatable content"
             );
-            yield Ok(Bytes::from(format_error_event(
-                "upstream Responses stream ended without translatable content"
-            )));
+            yield Ok(Bytes::from(error_translation::from_empty_stream(
+                crate::config::ProviderType::OpenAIResponses,
+                None,
+            ).sse()));
             return;
         }
 
@@ -125,34 +127,24 @@ fn message_start_event() -> String {
 }
 
 fn format_error_event(message: &str) -> String {
-    format_sse(
-        "error",
-        &json!({
-            "type": "error",
-            "error": {
-                "type": "api_error",
-                "message": message,
-            }
-        }),
+    AnthropicError::new(
+        "api_error",
+        message,
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     )
+    .sse()
 }
 
 fn format_context_overflow_event() -> String {
-    format_sse(
-        "error",
-        &json!({
-            "type": "error",
-            "error": {
-                "type": "invalid_request_error",
-                "message": "prompt is too long",
-            }
-        }),
-    )
+    error_translation::context_overflow().sse()
+}
+
+fn format_provider_error_event(event: &Value) -> Option<String> {
+    error_translation::from_responses_event(event).map(|err| err.sse())
 }
 
 fn is_context_overflow_error(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("context window") && lower.contains("exceeds")
+    error_translation::is_context_overflow_text(message)
 }
 
 fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
@@ -254,8 +246,19 @@ impl ResponsesStreamState {
         if !event_type.is_empty() {
             self.last_event_type = Some(event_type.to_string());
         }
-        self.log_parsed_event(event_type, &json);
+        capture_reasoning_event(event_type, &json);
         match event_type {
+            "error" => {
+                if let Some(event) = format_provider_error_event(&json) {
+                    vec![event]
+                } else {
+                    let message = json
+                        .pointer("/error/message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("upstream Responses error");
+                    vec![format_error_event(message)]
+                }
+            }
             "response.output_text.delta" => {
                 let delta = json.get("delta").and_then(|d| d.as_str()).unwrap_or("");
                 if delta.is_empty() {
@@ -437,8 +440,8 @@ impl ResponsesStreamState {
                 }
                 vec![]
             }
-            "response.completed" => {
-                // Extract usage from the completed response
+            "response.completed" | "response.incomplete" => {
+                // Extract usage from the terminal response
                 if let Some(resp) = json.get("response") {
                     if let Some(usage) = resp.get("usage") {
                         self.output_tokens = usage
@@ -450,8 +453,17 @@ impl ResponsesStreamState {
                         .get("status")
                         .and_then(|s| s.as_str())
                         .unwrap_or("completed");
-                    if status == "incomplete" {
+                    let incomplete_reason = resp
+                        .pointer("/incomplete_details/reason")
+                        .and_then(|v| v.as_str());
+                    if status == "incomplete" || event_type == "response.incomplete" {
                         self.stop_reason = "max_tokens".to_string();
+                    }
+                    if incomplete_reason == Some("max_output_tokens")
+                        && !self.saw_text_delta
+                        && !self.block_started
+                    {
+                        return vec![format_context_overflow_event()];
                     }
                     if !self.saw_text_delta && !self.block_started {
                         if let Some(output) = resp.get("output").and_then(|o| o.as_array()) {
@@ -470,14 +482,14 @@ impl ResponsesStreamState {
                 vec![]
             }
             "response.failed" => {
-                let message = json
-                    .pointer("/response/error/message")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| json.pointer("/error/message").and_then(|v| v.as_str()))
-                    .unwrap_or("upstream response failed");
-                if is_context_overflow_error(message) {
-                    vec![format_context_overflow_event()]
+                if let Some(event) = format_provider_error_event(&json) {
+                    vec![event]
                 } else {
+                    let message = json
+                        .pointer("/response/error/message")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| json.pointer("/error/message").and_then(|v| v.as_str()))
+                        .unwrap_or("upstream response failed");
                     vec![format_error_event(message)]
                 }
             }
@@ -486,7 +498,12 @@ impl ResponsesStreamState {
                     .get("message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Codex rate limit event received");
-                vec![format_error_event(message)]
+                vec![AnthropicError::new(
+                    "rate_limit_error",
+                    message,
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                )
+                .sse()]
             }
             _ => vec![],
         }
@@ -563,7 +580,7 @@ impl ResponsesStreamState {
                     "Responses stream function arguments done"
                 );
             }
-            "response.completed" => {
+            "response.completed" | "response.incomplete" => {
                 let response = event.get("response");
                 tracing::info!(
                     event_type,
@@ -632,6 +649,91 @@ impl ResponsesStreamState {
         self.block_started = true;
         self.saw_text_delta = true;
         events
+    }
+}
+
+fn capture_reasoning_event(event_type: &str, event: &Value) {
+    let mut texts = Vec::new();
+    if event_type.contains("reasoning") {
+        if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
+            texts.push(delta.to_string());
+        }
+        collect_reasoning_text(event, &mut texts);
+    } else if event_type == "response.output_item.added" {
+        if let Some(item) = event.get("item") {
+            if item.get("type").and_then(|v| v.as_str()) == Some("reasoning") {
+                collect_reasoning_text(item, &mut texts);
+            }
+        }
+    } else if event_type == "response.output_item.done" {
+        return;
+    } else if event_type == "response.completed" || event_type == "response.incomplete" {
+        if let Some(items) = event.pointer("/response/output").and_then(|v| v.as_array()) {
+            for item in items {
+                if item.get("type").and_then(|v| v.as_str()) == Some("reasoning") {
+                    collect_reasoning_text(item, &mut texts);
+                }
+            }
+        }
+        if let Some(tokens) = event
+            .pointer("/response/usage/output_tokens_details/reasoning_tokens")
+            .and_then(|v| v.as_u64())
+        {
+            crate::proxy::reasoning::publish(
+                crate::reasoning::ReasoningEvent::new(
+                    event
+                        .pointer("/response/id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown"),
+                    "turn",
+                    "openai-responses",
+                    "reasoning_tokens",
+                )
+                .value(json!(tokens)),
+            );
+        }
+    }
+
+    let text = texts
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !text.is_empty() {
+        crate::proxy::reasoning::publish(
+            crate::reasoning::ReasoningEvent::new(
+                event
+                    .pointer("/response/id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("stream"),
+                event
+                    .get("item_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("turn"),
+                "openai-responses",
+                event_type,
+            )
+            .text(text),
+        );
+    }
+}
+
+fn collect_reasoning_text(value: &Value, texts: &mut Vec<String>) {
+    match value {
+        Value::String(text) => texts.push(text.clone()),
+        Value::Array(items) => {
+            for item in items {
+                collect_reasoning_text(item, texts);
+            }
+        }
+        Value::Object(map) => {
+            for key in ["summary", "text", "content", "reasoning", "reasoning_text"] {
+                if let Some(value) = map.get(key) {
+                    collect_reasoning_text(value, texts);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -771,6 +873,30 @@ mod tests {
     }
 
     #[test]
+    fn test_response_failed_overloaded_translates_to_overloaded_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state.process_line(
+            r#"data: {"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("overloaded_error"));
+        assert!(events[0].contains("Our servers are currently overloaded"));
+    }
+
+    #[test]
+    fn test_event_error_overloaded_translates_to_overloaded_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        let events = state.process_line(
+            r#"data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("overloaded_error"));
+        assert!(events[0].contains("Our servers are currently overloaded"));
+    }
+
+    #[test]
     fn test_context_overflow_translates_to_claude_compact_error() {
         let mut state = ResponsesStreamState::new(ToolNameMap::new());
         let events = state.process_line(
@@ -781,6 +907,50 @@ mod tests {
         assert!(events[0].contains("invalid_request_error"));
         assert!(events[0].contains("prompt is too long"));
         assert!(!events[0].contains("Your input exceeds the context window"));
+    }
+
+    #[test]
+    fn test_incomplete_max_output_without_visible_output_translates_to_compact_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        assert!(state
+            .process_line(r#"data: {"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}"#)
+            .is_empty());
+        assert!(state
+            .process_line(r#"data: {"type":"response.output_item.done","item":{"type":"reasoning","summary":[]}}"#)
+            .is_empty());
+
+        let events = state.process_line(
+            r#"data: {"type":"response.incomplete","response":{"status":"incomplete","error":null,"incomplete_details":{"reason":"max_output_tokens"},"usage":{"output_tokens":82,"output_tokens_details":{"reasoning_tokens":82}}}}"#,
+        );
+
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("invalid_request_error"));
+        assert!(events[0].contains("prompt is too long"));
+        assert!(!events[0].contains("ended without translatable content"));
+    }
+
+    #[tokio::test]
+    async fn test_incomplete_max_output_with_visible_output_finishes_as_max_tokens() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            concat!(
+                "event: response.output_text.delta\n",
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+                "event: response.incomplete\n",
+                "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"output_tokens\":82}}}\n\n",
+            ),
+        ))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("partial"));
+        assert!(output.contains("message_delta"));
+        assert!(output.contains("max_tokens"));
+        assert!(!output.contains("event: error"));
     }
 
     #[test]
@@ -832,7 +1002,7 @@ mod tests {
         let first = stream.next().await.unwrap().unwrap();
         let text = String::from_utf8(first.to_vec()).unwrap();
         assert!(text.contains("event: error"));
-        assert!(text.contains("ended without translatable content"));
+        assert!(text.contains("empty or untranslatable stream"));
         assert!(!text.contains("message_start"));
         assert!(stream.next().await.is_none());
     }
@@ -863,7 +1033,7 @@ mod tests {
         let first = stream.next().await.unwrap().unwrap();
         let text = String::from_utf8(first.to_vec()).unwrap();
         assert!(text.contains("event: error"));
-        assert!(text.contains("ended without translatable content"));
+        assert!(text.contains("empty or untranslatable stream"));
         assert!(!text.contains("message_start"));
         assert!(!text.contains("content_block_delta"));
         assert!(stream.next().await.is_none());

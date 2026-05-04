@@ -29,7 +29,11 @@ behaves differently from Anthropic Messages:
   `v0.2.4` resends historical images and can hit the 32 MB request body limit.
 - Document/file blocks are mapped where Responses can represent them.
 - Prompt cache keys and cached-token usage are mapped back to Claude Code.
-- Upstream `429`, rate-limit, and failure stream events are hardened.
+- Native Claude Code error semantics: provider failures are mapped to the
+  closest Anthropic error type so Claude Code can compact, back off, or surface
+  auth/config failures the same way it would against Anthropic. Deterministic
+  request/account errors are returned directly; only retryable provider-health
+  failures feed failover and circuit breakers.
 - Error-only proxy dumps help diagnose upstream OpenAI and Claude-visible errors.
 
 ## Fork and upstream scope
@@ -74,6 +78,9 @@ intentionally unsupported.
 - ✅ Codex context-overflow errors translate to Claude Code's context-limit
   prompt so users can run `/compact` or `/clear` instead of seeing malformed
   proxy responses.
+- ✅ Native Claude Code error semantics for context overflow, overload, rate
+  limits, auth/permission failures, request-size errors, and upstream transport
+  failures.
 - ✅ Error-only proxy dumps for upstream OpenAI errors and Claude-visible
   translated errors.
 - ✅ Current-turn images, including optional `image_model` routing.
@@ -104,6 +111,17 @@ When Codex reports that the request exceeds the model context window, claudex
 returns Claude Code's normal context-limit error shape instead of streaming a
 malformed proxy response. The user can then run `/compact` or `/clear` from
 Claude Code.
+
+Provider errors are translated by root cause to Anthropic-compatible error
+semantics. Context overflow triggers Claude Code's normal compact flow,
+overloaded and rate-limited upstreams use Claude Code's native backoff/error UX,
+auth and permission failures stay recognizable, and local-model transport
+failures report the unavailable local server instead of a generic malformed
+HTTP 200 stream. Deterministic request/account errors such as invalid request
+schemas, unsupported models, missing parameters, auth, billing, permissions, and
+request-size failures are returned directly and do not poison circuit breakers;
+retryable provider-health failures such as rate limits, overload, timeouts, 5xx,
+and transport resets still feed retry, failover, and circuit-breaker protection.
 
 claudex does not attempt fragile cross-protocol auto-compaction on purpose:
 Claude Code's compaction behavior and OpenAI Responses/Codex error shapes can
@@ -213,15 +231,18 @@ claudex
   After a `codex-sub` profile exists, plain `claudex` uses it by default.
 
 claudex-config
-  Claudex setup and management: auth, proxy, config/profile, update, sets,
-  dashboard, and the inherited `run <profile>` command family.
+  Claudex setup and management: auth, proxy, config/profile, sets,
+  and the inherited `run <profile>` command family.
 ```
 
 This keeps `claudex` close to `claude` at the launcher layer: flags such as
 `claudex --resume <session-id>` are forwarded to Claude Code instead of being
-claimed by the management CLI. The previous Claudex management behavior remains
-available through `claudex-config`, including profiles, proxy control, OAuth,
-configuration sets, dashboard, updates, and `claudex-config run <profile>`.
+claimed by the management CLI. Management stays in `claudex-config`; obsolete
+side commands such as the old dashboard, self-update command, and fake
+`proxy start --daemon` path are intentionally not part of the fork CLI.
+The previous Claudex management behavior remains available through
+`claudex-config`, including profiles, proxy control, OAuth, configuration sets,
+and `claudex-config run <profile>`.
 
 Normal launch options come from environment variables:
 

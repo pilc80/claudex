@@ -8,6 +8,7 @@ mod context;
 mod oauth;
 mod process;
 mod proxy;
+mod reasoning;
 mod router;
 mod sets;
 mod terminal;
@@ -24,7 +25,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use cli::{AuthAction, Cli, Commands, ProfileAction, ProxyAction, SetsAction};
+use cli::{AuthAction, Cli, Commands, ProfileAction, ProxyAction, ReasoningAction, SetsAction};
 use config::{ClaudexConfig, HyperlinksConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +101,10 @@ async fn run_launcher() -> Result<()> {
         .clone();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let (reasoning, args) = split_reasoning_flag(args);
+    if reasoning {
+        launch_reasoning_watcher(&config.proxy_host, config.proxy_port)?;
+    }
     let model = std::env::var("CLAUDEX_MODEL").ok();
     process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false)?;
 
@@ -109,6 +114,28 @@ async fn run_launcher() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn split_reasoning_flag(args: Vec<String>) -> (bool, Vec<String>) {
+    let mut enabled = false;
+    let args = args
+        .into_iter()
+        .filter(|arg| {
+            if arg == "--reasoning" {
+                enabled = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+    (enabled, args)
+}
+
+fn launch_reasoning_watcher(host: &str, port: u16) -> Result<()> {
+    let url = format!("http://{host}:{port}/reasoning/overlay");
+    open::that(&url).with_context(|| format!("failed to open reasoning overlay at {url}"))?;
     Ok(())
 }
 
@@ -202,15 +229,8 @@ async fn run_config_cli() -> Result<()> {
         },
 
         Some(Commands::Proxy { action }) => match action {
-            ProxyAction::Start {
-                port,
-                daemon: as_daemon,
-            } => {
-                if as_daemon {
-                    start_proxy_background(&config).await?;
-                } else {
-                    proxy::start_proxy(config, port).await?;
-                }
+            ProxyAction::Start { port } => {
+                proxy::start_proxy(config, port).await?;
             }
             ProxyAction::Stop => {
                 process::daemon::stop_proxy()?;
@@ -220,27 +240,22 @@ async fn run_config_cli() -> Result<()> {
             }
         },
 
-        Some(Commands::Dashboard) => {
-            let config_arc = std::sync::Arc::new(tokio::sync::RwLock::new(config));
-            let metrics_store = proxy::metrics::MetricsStore::new();
-            let health =
-                std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
-            tui::run_tui(config_arc, metrics_store, health).await?;
-        }
+        Some(Commands::Reasoning { action }) => match action {
+            ReasoningAction::Watch { host, port } => {
+                let host = host.unwrap_or_else(|| config.proxy_host.clone());
+                let port = port.unwrap_or(config.proxy_port);
+                reasoning::watch_live(&host, port).await?;
+            }
+            ReasoningAction::Tail { lines } => {
+                reasoning::tail(lines)?;
+            }
+            ReasoningAction::Clear => {
+                reasoning::clear()?;
+            }
+        },
 
         Some(Commands::Config { action }) => {
             config::cmd::dispatch(action, &mut config).await?;
-        }
-
-        Some(Commands::Update { check }) => {
-            if check {
-                match update::check_update().await? {
-                    Some(version) => println!("New version available: {version}"),
-                    None => println!("Already up to date (v{})", env!("CARGO_PKG_VERSION")),
-                }
-            } else {
-                update::self_update().await?;
-            }
         }
 
         Some(Commands::Sets { action }) => match action {
@@ -296,26 +311,17 @@ async fn run_config_cli() -> Result<()> {
         },
 
         None => {
-            // Default: launch TUI if profiles exist, else show help
-            if config.profiles.is_empty() {
-                println!("Welcome to Claudex!");
-                println!();
-                println!("Get started:");
-                println!("  1. Create config: claudex-config config init");
-                println!(
-                    "  2. Add a profile: edit {:?}",
-                    ClaudexConfig::config_path()?
-                );
-                println!("  3. Run claude:    CLAUDEX_PROFILE=<profile> claudex");
-                println!();
-                println!("Use --help for more options.");
-            } else {
-                let config_arc = std::sync::Arc::new(tokio::sync::RwLock::new(config));
-                let metrics_store = proxy::metrics::MetricsStore::new();
-                let health =
-                    std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
-                tui::run_tui(config_arc, metrics_store, health).await?;
-            }
+            println!("Welcome to Claudex!");
+            println!();
+            println!("Get started:");
+            println!("  1. Create config: claudex-config config init");
+            println!(
+                "  2. Add a profile: edit {:?}",
+                ClaudexConfig::config_path()?
+            );
+            println!("  3. Run claude:    CLAUDEX_PROFILE=<profile> claudex");
+            println!();
+            println!("Use --help for more options.");
         }
     }
 
@@ -525,6 +531,24 @@ mod tests {
             hyperlinks_from_env(Some("auto")).unwrap(),
             Some(HyperlinksConfig::Auto)
         );
+    }
+
+    #[test]
+    fn launcher_reasoning_flag_is_stripped() {
+        let (enabled, args) = split_reasoning_flag(vec![
+            "--reasoning".to_string(),
+            "--resume".to_string(),
+            "abc".to_string(),
+        ]);
+        assert!(enabled);
+        assert_eq!(args, vec!["--resume", "abc"]);
+    }
+
+    #[test]
+    fn launcher_reasoning_flag_absent_keeps_args() {
+        let (enabled, args) = split_reasoning_flag(vec!["--resume".to_string(), "abc".to_string()]);
+        assert!(!enabled);
+        assert_eq!(args, vec!["--resume", "abc"]);
     }
 
     #[test]

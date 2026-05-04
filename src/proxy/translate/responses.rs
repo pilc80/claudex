@@ -263,14 +263,24 @@ fn apply_reasoning(body: &mut Value, anthropic: &Value) {
         });
 
     if let Some(effort) = effort {
-        body["reasoning"] = json!({"effort": effort});
+        body["reasoning"] = json!({"effort": effort, "summary": "detailed"});
+    } else {
+        body["reasoning"] = json!({"summary": "auto"});
     }
 }
 
 fn apply_text_format(body: &mut Value, anthropic: &Value) -> Result<()> {
     if let Some(format) = anthropic.pointer("/output_config/format") {
         validate_text_format(format)?;
-        body["text"] = json!({"format": format.clone()});
+        let mut format = format.clone();
+        if format.get("type").and_then(|v| v.as_str()) == Some("json_schema")
+            && format
+                .get("name")
+                .is_none_or(|v| v.as_str().is_none_or(|s| s.is_empty()))
+        {
+            format["name"] = json!("claude_code_schema");
+        }
+        body["text"] = json!({"format": format});
     }
     Ok(())
 }
@@ -384,6 +394,20 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
                         "input": input,
                     }));
                 }
+                "reasoning" => {
+                    let text = extract_reasoning_text(item);
+                    if !text.is_empty() {
+                        crate::proxy::reasoning::publish(
+                            crate::reasoning::ReasoningEvent::new(
+                                resp.get("id").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                                item.get("id").and_then(|v| v.as_str()).unwrap_or("turn"),
+                                "openai-responses",
+                                "reasoning",
+                            )
+                            .text(text),
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -443,6 +467,31 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
         "stop_sequence": null,
         "usage": anthropic_usage,
     }))
+}
+
+fn extract_reasoning_text(item: &Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(summary) = item.get("summary") {
+        match summary {
+            Value::String(text) => parts.push(text.clone()),
+            Value::Array(items) => {
+                for part in items {
+                    if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                        parts.push(text.to_string());
+                    } else if let Some(text) = part.as_str() {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for key in ["text", "content", "reasoning", "reasoning_text"] {
+        if let Some(text) = item.get(key).and_then(|v| v.as_str()) {
+            parts.push(text.to_string());
+        }
+    }
+    parts.join("\n")
 }
 
 fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
@@ -940,9 +989,33 @@ mod tests {
 
         let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
         assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["reasoning"]["summary"], "detailed");
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["name"], "result");
         assert_eq!(body["prompt_cache_key"], "claude-session-1");
+    }
+
+    #[test]
+    fn test_json_schema_format_without_name_gets_default_name() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Return JSON"}],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"title": {"type": "string"}},
+                        "required": ["title"],
+                        "additionalProperties": false
+                    }
+                }
+            }
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["format"]["name"], "claude_code_schema");
     }
 
     #[test]

@@ -1,11 +1,13 @@
 pub mod adapter;
 pub mod context_engine;
 pub mod error;
+pub mod error_translation;
 pub mod fallback;
 pub mod handler;
 pub mod health;
 pub mod metrics;
 pub mod models;
+pub mod reasoning;
 pub mod translate;
 pub mod util;
 
@@ -33,6 +35,7 @@ pub struct ProxyState {
     pub shared_context: SharedContext,
     pub rag_index: Option<RagIndex>,
     pub token_manager: crate::oauth::manager::TokenManager,
+    pub reasoning_bus: reasoning::ReasoningBus,
 }
 
 pub const REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
@@ -81,6 +84,8 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
     };
 
     let token_manager = crate::oauth::manager::TokenManager::new(http_client.clone());
+    let reasoning_bus = reasoning::ReasoningBus::new();
+    reasoning::set_global_bus(reasoning_bus.clone());
 
     let state = Arc::new(ProxyState {
         config: Arc::new(RwLock::new(config)),
@@ -91,6 +96,7 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
         shared_context: SharedContext::new(),
         rag_index,
         token_manager,
+        reasoning_bus,
     });
 
     health::spawn_health_checker(state.clone());
@@ -102,6 +108,8 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
             post(handler::handle_messages),
         )
         .route("/health", get(health_handler))
+        .route("/reasoning/events", get(reasoning::events))
+        .route("/reasoning/overlay", get(reasoning::overlay))
         .layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT_BYTES))
         .with_state(state);
 

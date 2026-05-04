@@ -13,10 +13,29 @@ use serde_json::{json, Map, Value};
 
 use crate::config::{ProfileConfig, ProviderType};
 use crate::oauth::AuthType;
+use crate::proxy::error_translation::{self, AnthropicError, CircuitDecision};
 use crate::proxy::ProxyState;
 use crate::router::classifier;
 
 const IMAGE_HISTORY_PLACEHOLDER_PREFIX: &str = "[Previous image omitted by claudex";
+
+#[derive(Debug)]
+struct TranslatedProxyError {
+    profile: String,
+    url: String,
+    upstream_status: u16,
+    request: Value,
+    response: Value,
+    anthropic: AnthropicError,
+}
+
+impl std::fmt::Display for TranslatedProxyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.anthropic.message)
+    }
+}
+
+impl std::error::Error for TranslatedProxyError {}
 
 pub async fn handle_messages(
     State(state): State<Arc<ProxyState>>,
@@ -253,6 +272,35 @@ pub async fn handle_messages(
         }
         Err(e) => {
             metrics.record_request(false, latency, 0);
+            if let Some(translated) = e.downcast_ref::<TranslatedProxyError>() {
+                tracing::error!(
+                    profile = %translated.profile,
+                    error = %translated.anthropic.message,
+                    "proxy request failed with translated provider error"
+                );
+                dump_proxy_error(
+                    &translated.profile,
+                    "translated_proxy_error",
+                    &translated.url,
+                    translated.upstream_status,
+                    &translated.request,
+                    &translated.response,
+                    Some(&translated.anthropic.json()),
+                );
+                return Response::builder()
+                    .status(translated.anthropic.http_status)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&translated.anthropic.json()).unwrap_or_default(),
+                    ))
+                    .unwrap_or_else(|_| {
+                        (
+                            StatusCode::BAD_GATEWAY,
+                            format!("proxy error: {}", translated.anthropic.message),
+                        )
+                            .into_response()
+                    });
+            }
             tracing::error!(profile = %resolved_profile_name, error = %e, "proxy request failed");
             (StatusCode::BAD_GATEWAY, format!("proxy error: {e}")).into_response()
         }
@@ -361,11 +409,26 @@ async fn try_with_circuit_breaker(
         .or_insert_with(Default::default);
     match &result {
         Ok(_) => cb.record_success(),
-        Err(_) => cb.record_failure(),
+        Err(err) if circuit_decision_for_error(err) == CircuitDecision::Retryable => {
+            cb.record_failure();
+        }
+        Err(err) => {
+            tracing::info!(
+                profile = %profile.name,
+                error = %err,
+                "not recording deterministic provider error against circuit breaker"
+            );
+        }
     }
     drop(map);
 
     result
+}
+
+fn circuit_decision_for_error(err: &anyhow::Error) -> CircuitDecision {
+    err.downcast_ref::<TranslatedProxyError>()
+        .map(|translated| error_translation::circuit_decision(&translated.anthropic))
+        .unwrap_or(CircuitDecision::Retryable)
 }
 
 /// Forward request to a single provider (used for both primary and backup).
@@ -445,7 +508,22 @@ async fn try_forward(
             req = req.header(k.as_str(), v.as_str());
         }
 
-        let resp = req.json(&translated.body).send().await?;
+        let resp = match req.json(&translated.body).send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                let anthropic =
+                    error_translation::from_stream_transport(&err.to_string(), Some(&url));
+                return Err(TranslatedProxyError {
+                    profile: profile.name.clone(),
+                    url: url.clone(),
+                    upstream_status: anthropic.http_status.as_u16(),
+                    request: translated.body.clone(),
+                    response: json!(err.to_string()),
+                    anthropic,
+                }
+                .into());
+            }
+        };
         if resp.status() == StatusCode::TOO_MANY_REQUESTS && attempts < 2 {
             let delay = retry_after_delay(resp.headers());
             let err_body = resp.text().await.unwrap_or_default();
@@ -519,7 +597,7 @@ async fn try_forward(
                     body = %err_body,
                     "client error (non-retryable)"
                 );
-                let anthropic_err = super::util::to_anthropic_error(status.as_u16(), &err_body);
+                let anthropic_err = error_translation::from_http_status(status, &err_body);
                 dump_proxy_error(
                     &profile.name,
                     "openai_error",
@@ -527,13 +605,13 @@ async fn try_forward(
                     status.as_u16(),
                     &translated.body,
                     &err_body,
-                    Some(&anthropic_err),
+                    Some(&anthropic_err.json()),
                 );
                 let response = Response::builder()
-                    .status(status.as_u16())
+                    .status(anthropic_err.http_status)
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::to_vec(&anthropic_err).unwrap_or_default(),
+                        serde_json::to_vec(&anthropic_err.json()).unwrap_or_default(),
                     ))
                     .map_err(|e| anyhow::anyhow!("failed to build error response: {e}"))?;
                 return Ok(response);
@@ -1031,6 +1109,87 @@ fn json_text_block(text: String) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn deterministic_translated_errors_do_not_count_against_circuit() {
+        let err = TranslatedProxyError {
+            profile: "codex-sub".to_string(),
+            url: "https://chatgpt.com/backend-api/codex/responses".to_string(),
+            upstream_status: 400,
+            request: json!({"model": "gpt-5.5"}),
+            response: json!({
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Missing required parameter: 'text.format.name'.",
+                    "param": "text.format.name",
+                    "code": "missing_required_parameter"
+                }
+            }),
+            anthropic: AnthropicError::new(
+                "invalid_request_error",
+                "Missing required parameter: 'text.format.name'.",
+                StatusCode::BAD_REQUEST,
+            ),
+        };
+
+        let err: anyhow::Error = err.into();
+        assert_eq!(circuit_decision_for_error(&err), CircuitDecision::Direct);
+    }
+
+    #[test]
+    fn transport_errors_count_against_circuit() {
+        let err: anyhow::Error = anyhow::anyhow!("connection reset before headers");
+        assert_eq!(circuit_decision_for_error(&err), CircuitDecision::Retryable);
+    }
+
+    #[tokio::test]
+    async fn test_transport_error_records_circuit_breaker_failure() {
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(50))
+            .build()
+            .unwrap();
+        let state = ProxyState {
+            config: Arc::new(tokio::sync::RwLock::new(
+                crate::config::ClaudexConfig::default(),
+            )),
+            metrics: crate::proxy::metrics::MetricsStore::new(),
+            http_client,
+            health_status: Arc::new(tokio::sync::RwLock::new(
+                crate::proxy::health::HealthMap::new(),
+            )),
+            circuit_breakers: crate::proxy::fallback::new_circuit_breaker_map(),
+            shared_context: crate::context::sharing::SharedContext::new(),
+            rag_index: None,
+            token_manager: crate::oauth::manager::TokenManager::new(reqwest::Client::new()),
+            reasoning_bus: crate::proxy::reasoning::ReasoningBus::new(),
+        };
+        let profile = ProfileConfig {
+            name: "dead-local".to_string(),
+            provider_type: ProviderType::OpenAICompatible,
+            base_url: "http://127.0.0.1:9/v1".to_string(),
+            default_model: "test-model".to_string(),
+            api_key: "test".to_string(),
+            enabled: true,
+            ..ProfileConfig::default()
+        };
+        let body = json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": false
+        });
+
+        let result =
+            try_with_circuit_breaker(&state, &profile, &HeaderMap::new(), &body, false).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .downcast_ref::<TranslatedProxyError>()
+            .is_some());
+
+        let breakers = state.circuit_breakers.read().await;
+        let breaker = breakers.get("dead-local").unwrap();
+        assert_eq!(breaker.failure_count, 1);
+    }
 
     #[tokio::test]
     async fn test_responses_preflight_detects_context_overflow() {

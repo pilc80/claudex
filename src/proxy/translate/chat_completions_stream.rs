@@ -3,6 +3,8 @@ use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
 use std::pin::Pin;
 
+use crate::config::ProviderType;
+use crate::proxy::error_translation;
 use crate::proxy::util::{format_sse, ToolNameMap};
 
 /// Translates an OpenAI SSE stream to Anthropic SSE format.
@@ -19,24 +21,10 @@ where
     let mut state = StreamState::new(tool_name_map);
 
     let output = async_stream::stream! {
-        // Send message_start
-        let msg_start = format_sse("message_start", &json!({
-            "type": "message_start",
-            "message": {
-                "id": format!("msg_{}", uuid::Uuid::new_v4()),
-                "type": "message",
-                "role": "assistant",
-                "model": "claudex-proxy",
-                "content": [],
-                "stop_reason": null,
-                "stop_sequence": null,
-                "usage": {"input_tokens": 0, "output_tokens": 0}
-            }
-        }));
-        yield Ok(Bytes::from(msg_start));
-
         let mut stream = std::pin::pin!(input);
         let mut buffer = String::new();
+        let mut message_started = false;
+        let mut saw_translatable_event = false;
 
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
@@ -50,6 +38,15 @@ where
 
                         if let Some(events) = state.process_openai_line(&line) {
                             for event in events {
+                                if event.starts_with("event: error") {
+                                    yield Ok(Bytes::from(event));
+                                    return;
+                                }
+                                if !message_started {
+                                    yield Ok(Bytes::from(message_start_event()));
+                                    message_started = true;
+                                }
+                                saw_translatable_event = true;
                                 yield Ok(Bytes::from(event));
                             }
                         }
@@ -65,16 +62,30 @@ where
 
                         if let Some(events) = state.process_openai_line(&line) {
                             for event in events {
+                                if event.starts_with("event: error") {
+                                    yield Ok(Bytes::from(event));
+                                    return;
+                                }
+                                if !message_started {
+                                    yield Ok(Bytes::from(message_start_event()));
+                                    message_started = true;
+                                }
+                                saw_translatable_event = true;
                                 yield Ok(Bytes::from(event));
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    yield Err(e);
+                    yield Ok(Bytes::from(error_translation::from_stream_transport(&e.to_string(), None).sse()));
                     return;
                 }
             }
+        }
+
+        if !saw_translatable_event {
+            yield Ok(Bytes::from(error_translation::from_empty_stream(ProviderType::OpenAICompatible, None).sse()));
+            return;
         }
 
         // Send final events
@@ -97,6 +108,25 @@ where
     };
 
     Box::pin(output)
+}
+
+fn message_start_event() -> String {
+    format_sse(
+        "message_start",
+        &json!({
+            "type": "message_start",
+            "message": {
+                "id": format!("msg_{}", uuid::Uuid::new_v4()),
+                "type": "message",
+                "role": "assistant",
+                "model": "claudex-proxy",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {"input_tokens": 0, "output_tokens": 0}
+            }
+        }),
+    )
 }
 
 struct StreamState {
@@ -132,6 +162,11 @@ impl StreamState {
         }
 
         let parsed: Value = serde_json::from_str(data).ok()?;
+        if parsed.get("error").is_some() {
+            let err =
+                error_translation::from_http_status(axum::http::StatusCode::BAD_GATEWAY, data);
+            return Some(vec![err.sse()]);
+        }
         let choice = parsed.get("choices")?.as_array()?.first()?;
         let delta = choice.get("delta")?;
 
@@ -291,6 +326,33 @@ impl StreamState {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn test_untranslatable_stream_returns_error_before_message_start() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from_static(
+            b"data: {\"choices\":[{\"delta\":{}}]}\n\n",
+        ))]);
+        let output = translate_sse_stream(input, ToolNameMap::new())
+            .collect::<Vec<_>>()
+            .await;
+        let body = String::from_utf8_lossy(output[0].as_ref().unwrap()).to_string();
+        assert!(body.contains("event: error"));
+        assert!(body.contains("empty or untranslatable stream"));
+        assert!(!body.contains("message_start"));
+    }
+
+    #[test]
+    fn test_error_json_maps_to_anthropic_error() {
+        let mut state = StreamState::new(std::collections::HashMap::new());
+        let line = format!(
+            "data: {}",
+            json!({"error": {"message": "rate_limit_exceeded", "type": "rate_limit_error"}})
+        );
+        let events = state.process_openai_line(&line).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("rate_limit_error"));
+    }
 
     #[test]
     fn test_process_text_delta() {

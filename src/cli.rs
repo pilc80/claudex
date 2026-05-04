@@ -45,20 +45,16 @@ pub enum Commands {
         action: ProxyAction,
     },
 
-    /// Launch the TUI dashboard
-    Dashboard,
+    /// Watch provider-exposed reasoning captured by the proxy
+    Reasoning {
+        #[command(subcommand)]
+        action: ReasoningAction,
+    },
 
     /// Manage configuration
     Config {
         #[command(subcommand)]
         action: Option<ConfigAction>,
-    },
-
-    /// Self-update claudex binary
-    Update {
-        /// Only check for updates, don't install
-        #[arg(long)]
-        check: bool,
     },
 
     /// Manage OAuth authentication for subscription services
@@ -180,6 +176,27 @@ pub enum SetsAction {
 }
 
 #[derive(Subcommand)]
+pub enum ReasoningAction {
+    /// Watch new reasoning events as they are captured
+    Watch {
+        /// Proxy host override
+        #[arg(long)]
+        host: Option<String>,
+        /// Proxy port override
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
+    /// Print the last captured reasoning events
+    Tail {
+        /// Number of events to print
+        #[arg(short, long, default_value_t = 20)]
+        lines: usize,
+    },
+    /// Clear captured reasoning events
+    Clear,
+}
+
+#[derive(Subcommand)]
 pub enum ConfigAction {
     /// Display configuration summary (default when no subcommand)
     Show {
@@ -246,12 +263,42 @@ pub enum ProxyAction {
         /// Port override
         #[arg(short, long)]
         port: Option<u16>,
-        /// Run as daemon
-        #[arg(short, long)]
-        daemon: bool,
     },
     /// Stop the proxy daemon
     Stop,
     /// Show proxy status
     Status,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    fn root_help() -> String {
+        Cli::command().render_long_help().to_string()
+    }
+
+    #[test]
+    fn root_help_exposes_core_management_commands() {
+        let help = root_help();
+        assert!(help.contains("run"));
+        assert!(help.contains("profile"));
+        assert!(help.contains("proxy"));
+        assert!(help.contains("config"));
+        assert!(help.contains("auth"));
+        assert!(help.contains("sets"));
+    }
+
+    #[test]
+    fn root_help_omits_obsolete_side_commands() {
+        let help = root_help();
+        assert!(!help.contains("dashboard"));
+        assert!(!help.contains("Self-update claudex binary"));
+    }
+
+    #[test]
+    fn proxy_start_rejects_daemon_option() {
+        assert!(Cli::try_parse_from(["claudex-config", "proxy", "start", "--daemon"]).is_err());
+    }
 }

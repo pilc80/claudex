@@ -489,20 +489,16 @@ maybe_stop_proxy() {
         return
     fi
 
-    if [ -n "$INSTALLED_CONFIG_BIN" ] && [ -x "$INSTALLED_CONFIG_BIN" ]; then
-        status="$("$INSTALLED_CONFIG_BIN" proxy status 2>/dev/null || true)"
-    else
-        status="$("$INSTALLED_BIN" proxy status 2>/dev/null || true)"
+    if [ -z "$INSTALLED_CONFIG_BIN" ] || [ ! -x "$INSTALLED_CONFIG_BIN" ]; then
+        return
     fi
+
+    status="$("$INSTALLED_CONFIG_BIN" proxy status 2>/dev/null || true)"
     case "$status" in
         "Proxy is running"*)
             say "$status"
             if prompt_yes_no "Stop the running claudex proxy so the new binary is used?" n; then
-                if [ -n "$INSTALLED_CONFIG_BIN" ] && [ -x "$INSTALLED_CONFIG_BIN" ]; then
-                    "$INSTALLED_CONFIG_BIN" proxy stop || true
-                else
-                    "$INSTALLED_BIN" proxy stop || true
-                fi
+                "$INSTALLED_CONFIG_BIN" proxy stop || true
             else
                 say ""
                 say "Action needed:"

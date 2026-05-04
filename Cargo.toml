@@ -1,6 +1,6 @@
 [package]
 name = "claudex"
-version = "0.9.4"
+version = "0.9.8"
 edition = "2021"
 autobins = false
 description = "ChatGPT/Codex OAuth for Claude Code without an API key"
@@ -62,7 +62,7 @@ keyring = { version = "3", features = ["apple-native", "linux-native"] }
 notify = "7"
 
 # Async SSE streaming
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 async-stream = "0.3"
 
