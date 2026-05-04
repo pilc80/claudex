@@ -5,9 +5,11 @@ set -eu
 
 REPO="${CLAUDEX_REPO:-pilc80/claudex}"
 INSTALL_DIR="${CLAUDEX_INSTALL_DIR:-$HOME/.local/bin}"
+EXPLICIT_INSTALL_DIR="${CLAUDEX_INSTALL_DIR:+1}"
 PROFILE_NAME="${CLAUDEX_PROFILE:-codex-sub}"
 INSTALLED_BIN=""
 INSTALLED_CONFIG_BIN=""
+EXPECTED_VERSION=""
 ASSUME_YES="${CLAUDEX_ASSUME_YES:-}"
 SKIP_SETUP="${CLAUDEX_SKIP_SETUP:-}"
 DRY_RUN="${CLAUDEX_DRY_RUN:-}"
@@ -23,6 +25,29 @@ err() {
 
 has_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+resolve_command_path() {
+    command -v "$1" 2>/dev/null || true
+}
+
+select_install_dir() {
+    if [ -n "$EXPLICIT_INSTALL_DIR" ]; then
+        return
+    fi
+
+    existing_config="$(resolve_command_path claudex-config)"
+    if [ -n "$existing_config" ]; then
+        INSTALL_DIR="$(dirname "$existing_config")"
+        say "Replacing existing claudex-config found in PATH: $existing_config"
+        return
+    fi
+
+    existing_claudex="$(resolve_command_path claudex)"
+    if [ -n "$existing_claudex" ]; then
+        INSTALL_DIR="$(dirname "$existing_claudex")"
+        say "Replacing existing claudex found in PATH: $existing_claudex"
+    fi
 }
 
 is_yes() {
@@ -81,6 +106,7 @@ parse_args() {
             --install-dir)
                 [ "$#" -ge 2 ] || { err "--install-dir requires a value"; exit 2; }
                 INSTALL_DIR="$2"
+                EXPLICIT_INSTALL_DIR=1
                 shift 2
                 ;;
             --repo)
@@ -125,11 +151,24 @@ parse_args() {
 download_file() {
     url="$1"
     output="$2"
+    mode="${3:-quiet}"
 
     if has_cmd curl; then
-        curl -fsSL -H "User-Agent: claudex-installer" "$url" -o "$output"
+        if [ "$mode" = "progress" ]; then
+            curl --fail --location --show-error --progress-bar \
+                --connect-timeout 20 --retry 3 --retry-delay 2 \
+                -H "User-Agent: claudex-installer" "$url" -o "$output"
+        else
+            curl --fail --location --silent --show-error \
+                --connect-timeout 20 --retry 3 --retry-delay 2 \
+                -H "User-Agent: claudex-installer" "$url" -o "$output"
+        fi
     elif has_cmd wget; then
-        wget -O "$output" "$url"
+        if [ "$mode" = "progress" ]; then
+            wget --tries=3 --timeout=20 -O "$output" "$url"
+        else
+            wget --quiet --tries=3 --timeout=20 -O "$output" "$url"
+        fi
     else
         err "curl or wget is required"
         return 1
@@ -243,6 +282,11 @@ get_latest_version() {
     return 1
 }
 
+parse_manifest_version() {
+    manifest="$1"
+    sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$manifest" | head -n 1
+}
+
 parse_manifest_for_target() {
     manifest="$1"
     target="$2"
@@ -317,7 +361,13 @@ install_from_release() {
     url=""
     checksum_url=""
 
+    say "Downloading release manifest: $manifest_url"
     if download_file "$manifest_url" "$tmpdir/manifest.json" >/dev/null 2>&1; then
+        EXPECTED_VERSION="$(parse_manifest_version "$tmpdir/manifest.json")"
+        if [ -z "$EXPECTED_VERSION" ]; then
+            err "release manifest does not contain a version"
+            return 1
+        fi
         artifact_info="$(parse_manifest_for_target "$tmpdir/manifest.json" "$target")"
         archive_name="$(printf '%s\n' "$artifact_info" | sed -n '1p')"
         expected_sha="$(printf '%s\n' "$artifact_info" | sed -n '2p')"
@@ -337,6 +387,7 @@ install_from_release() {
             return 0
         fi
         version="$(get_latest_version)"
+        EXPECTED_VERSION="$version"
         if [ -z "$version" ]; then
             err "failed to determine latest release"
             return 1
@@ -364,7 +415,8 @@ install_from_release() {
 
     archive="$tmpdir/$archive_name"
     checksum_file="$tmpdir/$archive_name.sha256"
-    download_file "$url" "$archive"
+    say "Downloading release archive: $url"
+    download_file "$url" "$archive" progress
     if [ -n "$expected_sha" ]; then
         write_expected_checksum "$expected_sha" "$archive_name" "$checksum_file"
     else
@@ -402,6 +454,31 @@ ensure_path_notice() {
             say "  export PATH=\"$dir:\$PATH\""
             ;;
     esac
+}
+
+verify_installed_latest() {
+    if [ -z "$EXPECTED_VERSION" ] || [ -z "$INSTALLED_CONFIG_BIN" ] || [ ! -x "$INSTALLED_CONFIG_BIN" ]; then
+        return
+    fi
+
+    installed_version="$($INSTALLED_CONFIG_BIN --version 2>/dev/null | awk '{print $NF}' | head -n 1 || true)"
+    expected="${EXPECTED_VERSION#v}"
+    if [ "$installed_version" != "$expected" ]; then
+        err "installed claudex-config version is $installed_version, expected $expected"
+        exit 1
+    fi
+
+    path_config="$(resolve_command_path claudex-config)"
+    if [ -n "$path_config" ] && [ "$path_config" != "$INSTALLED_CONFIG_BIN" ]; then
+        path_version="$($path_config --version 2>/dev/null | awk '{print $NF}' | head -n 1 || true)"
+        if [ "$path_version" != "$expected" ]; then
+            err "PATH resolves claudex-config to $path_config ($path_version), not latest $expected"
+            err "Move $INSTALLED_CONFIG_BIN earlier in PATH or reinstall with --install-dir $(dirname "$path_config")"
+            exit 1
+        fi
+    fi
+
+    say "Installed latest claudex $expected"
 }
 
 maybe_stop_proxy() {
@@ -467,6 +544,7 @@ maybe_setup_chatgpt() {
 
 main() {
     parse_args "$@"
+    select_install_dir
 
     say "Claudex Installer"
     say "================="
@@ -498,6 +576,7 @@ main() {
     say "Installed claudex to $INSTALLED_BIN"
     say "Installed claudex-config to $INSTALLED_CONFIG_BIN"
     "$INSTALLED_CONFIG_BIN" --version 2>/dev/null || true
+    verify_installed_latest
     ensure_path_notice
     maybe_stop_proxy
     maybe_setup_chatgpt

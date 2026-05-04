@@ -16,6 +16,29 @@ fn windows_installer_uses_safe_web_wrappers() {
 }
 
 #[test]
+fn unix_installer_downloads_with_progress_timeout_and_retries() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("--progress-bar"));
+    assert!(script.contains("--connect-timeout"));
+    assert!(script.contains("--retry"));
+    assert!(script.contains("Downloading release manifest"));
+    assert!(script.contains("Downloading release archive"));
+}
+
+#[test]
+fn unix_installer_replaces_existing_path_install_and_verifies_latest() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("EXPLICIT_INSTALL_DIR"));
+    assert!(script.contains("select_install_dir"));
+    assert!(script.contains("resolve_command_path"));
+    assert!(script.contains("EXPECTED_VERSION"));
+    assert!(script.contains("verify_installed_latest"));
+    assert!(script.contains("PATH resolves claudex-config to"));
+}
+
+#[test]
 fn installers_use_claudex_config_for_management() {
     let unix_installer = fs::read_to_string("install.sh").expect("install.sh should exist");
     let windows_installer = install_ps1();
