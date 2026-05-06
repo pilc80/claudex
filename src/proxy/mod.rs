@@ -13,7 +13,7 @@ pub mod util;
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
@@ -38,10 +38,19 @@ pub struct ProxyState {
     pub reasoning_bus: reasoning::ReasoningBus,
 }
 
-pub const REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
-pub const REQUEST_BODY_LIMIT_BYTES_STR: &str = "33554432";
+pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+pub const REQUEST_BODY_LIMIT_ENV: &str = "CLAUDEX_BODY_LIMIT_BYTES";
 pub const HEALTH_VERSION_HEADER: &str = "x-claudex-version";
 pub const HEALTH_BODY_LIMIT_HEADER: &str = "x-claudex-body-limit";
+
+pub fn request_body_limit_bytes_from_env(value: Option<&str>) -> Result<usize> {
+    match value {
+        Some(value) => value.parse::<usize>().with_context(|| {
+            format!("{REQUEST_BODY_LIMIT_ENV} must be an unsigned integer byte count")
+        }),
+        None => Ok(DEFAULT_REQUEST_BODY_LIMIT_BYTES),
+    }
+}
 
 /// 获取 proxy 日志文件路径（~/.cache/claudex/proxy-{timestamp}-{pid}.log）
 /// 每次启动生成独立日志文件，支持多实例并行
@@ -56,6 +65,8 @@ pub fn proxy_log_path() -> Option<std::path::PathBuf> {
 pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> Result<()> {
     let port = port_override.unwrap_or(config.proxy_port);
     let host = config.proxy_host.clone();
+    let request_body_limit =
+        request_body_limit_bytes_from_env(std::env::var(REQUEST_BODY_LIMIT_ENV).ok().as_deref())?;
 
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -107,16 +118,24 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
             "/proxy/{profile}/v1/messages",
             post(handler::handle_messages),
         )
-        .route("/health", get(health_handler))
+        .route("/health", get(move || health_handler(request_body_limit)))
         .route("/reasoning/events", get(reasoning::events))
-        .route("/reasoning/overlay", get(reasoning::overlay))
-        .layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT_BYTES))
-        .with_state(state);
+        .route("/reasoning/overlay", get(reasoning::overlay));
+
+    let app = if request_body_limit > 0 {
+        app.layer(DefaultBodyLimit::max(request_body_limit))
+    } else {
+        app.layer(DefaultBodyLimit::disable())
+    }
+    .with_state(state);
 
     let bind_addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
-    tracing::info!("proxy listening on {bind_addr}");
+    tracing::info!(
+        body_limit_bytes = request_body_limit,
+        "proxy listening on {bind_addr}"
+    );
 
     crate::process::daemon::write_pid(std::process::id())?;
 
@@ -126,15 +145,46 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
     Ok(())
 }
 
-async fn health_handler() -> impl IntoResponse {
+async fn health_handler(request_body_limit: usize) -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert(
         HEALTH_VERSION_HEADER,
         HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
     );
-    headers.insert(
-        HEALTH_BODY_LIMIT_HEADER,
-        HeaderValue::from_static(REQUEST_BODY_LIMIT_BYTES_STR),
-    );
+    let body_limit = HeaderValue::from_str(&request_body_limit.to_string())
+        .expect("usize string should be a valid header value");
+    headers.insert(HEALTH_BODY_LIMIT_HEADER, body_limit);
     (headers, "ok")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_body_limit_defaults_to_anthropic_limit() {
+        assert_eq!(
+            request_body_limit_bytes_from_env(None).unwrap(),
+            DEFAULT_REQUEST_BODY_LIMIT_BYTES
+        );
+    }
+
+    #[test]
+    fn request_body_limit_accepts_zero_for_provider_decides() {
+        assert_eq!(request_body_limit_bytes_from_env(Some("0")).unwrap(), 0);
+    }
+
+    #[test]
+    fn request_body_limit_accepts_custom_byte_count() {
+        assert_eq!(
+            request_body_limit_bytes_from_env(Some("67108864")).unwrap(),
+            67_108_864
+        );
+    }
+
+    #[test]
+    fn request_body_limit_rejects_invalid_values() {
+        let err = request_body_limit_bytes_from_env(Some("64mb")).unwrap_err();
+        assert!(err.to_string().contains(REQUEST_BODY_LIMIT_ENV));
+    }
 }

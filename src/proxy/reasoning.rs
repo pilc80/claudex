@@ -71,21 +71,31 @@ const OVERLAY_HTML: &str = r#"<!doctype html>
 <title>Claudex Reasoning</title>
 <style>
 :root { color-scheme: dark; }
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
 body {
   margin: 0;
-  min-height: 100vh;
-  background: rgba(15, 17, 23, .86);
+  width: 100%;
+  height: 100%;
+  background: transparent;
   color: #f2efe7;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   overflow: hidden;
 }
 #app {
   box-sizing: border-box;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 17, 23, .72);
+  border-radius: 14px;
+  backdrop-filter: blur(18px);
   padding: 14px 16px;
-  border: 1px solid rgba(255,255,255,.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 18px 60px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.08);
 }
 .header {
   display: flex;
@@ -102,7 +112,7 @@ body {
 #reasoning {
   white-space: pre-wrap;
   overflow: auto;
-  height: calc(100vh - 62px);
+  height: calc(100% - 62px);
   padding-right: 4px;
 }
 .empty { color: #8f8778; }
@@ -119,29 +129,38 @@ body {
 const reasoning = document.getElementById('reasoning');
 const status = document.getElementById('status');
 const tokens = document.getElementById('tokens');
-let active = false;
-let current = '';
 let activeKey = null;
-function resetFor(event) {
-  const key = `${event.session}:${event.turn}`;
-  if (activeKey !== key) {
-    activeKey = key;
-    active = false;
-    current = '';
-    tokens.textContent = '';
-    reasoning.classList.remove('empty');
-    reasoning.textContent = '';
-  }
+let currentText = '';
+function turnKey(event) {
+  return `${event.session}:${event.turn}`;
 }
-function append(text) {
-  if (!active) {
-    active = true;
-    reasoning.classList.remove('empty');
-    reasoning.textContent = '';
+function showEmpty(text) {
+  currentText = '';
+  reasoning.classList.add('empty');
+  reasoning.textContent = text;
+  tokens.textContent = '';
+}
+function startTurn(event) {
+  const key = turnKey(event);
+  if (activeKey === key) return;
+  activeKey = key;
+  currentText = '';
+  reasoning.classList.remove('empty');
+  reasoning.textContent = '';
+  tokens.textContent = '';
+}
+function setReasoningText(text) {
+  currentText = text;
+  if (currentText.trim() === '') {
+    showEmpty('Waiting for provider reasoning...');
+    return;
   }
-  current += text;
-  reasoning.textContent = current;
+  reasoning.classList.remove('empty');
+  reasoning.textContent = currentText;
   reasoning.scrollTop = reasoning.scrollHeight;
+}
+function appendReasoningText(text) {
+  setReasoningText(currentText + text);
 }
 const source = new EventSource('/reasoning/events');
 source.onopen = () => { status.textContent = 'live'; };
@@ -149,16 +168,16 @@ source.onerror = () => { status.textContent = 'reconnecting'; };
 source.onmessage = (message) => {
   const event = JSON.parse(message.data);
   if (event.kind === 'response.reasoning_summary_text.delta') {
-    resetFor(event);
-    append(event.text || '');
+    startTurn(event);
+    appendReasoningText(event.text || '');
   } else if (event.kind === 'response.reasoning_summary_text.done') {
-    resetFor(event);
-    if (!active && event.text) append(event.text);
-    if (active && !current.endsWith('\n')) append('\n');
+    startTurn(event);
+    if (event.text && currentText.trim() === '') setReasoningText(event.text);
   } else if (event.kind === 'reasoning_tokens' && event.value !== null && event.value !== undefined) {
     tokens.textContent = `reasoning tokens: ${event.value}`;
   } else if (event.text) {
-    append(event.text + '\n');
+    startTurn(event);
+    setReasoningText(event.text);
   }
 };
 </script>

@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use std::ffi::OsStr;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -102,11 +103,21 @@ async fn run_launcher() -> Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (reasoning, args) = split_reasoning_flag(args);
-    if reasoning {
-        launch_reasoning_watcher(&config.proxy_host, config.proxy_port)?;
-    }
+    let mut overlay = if reasoning {
+        Some(launch_reasoning_watcher(
+            &config.proxy_host,
+            config.proxy_port,
+        )?)
+    } else {
+        None
+    };
     let model = std::env::var("CLAUDEX_MODEL").ok();
-    process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false)?;
+    let result = process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false);
+    if let Some(child) = overlay.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result?;
 
     if let Some(log_path) = proxy::proxy_log_path() {
         if log_path.exists() {
@@ -133,10 +144,36 @@ fn split_reasoning_flag(args: Vec<String>) -> (bool, Vec<String>) {
     (enabled, args)
 }
 
-fn launch_reasoning_watcher(host: &str, port: u16) -> Result<()> {
+fn launch_reasoning_watcher(host: &str, port: u16) -> Result<std::process::Child> {
     let url = format!("http://{host}:{port}/reasoning/overlay");
-    open::that(&url).with_context(|| format!("failed to open reasoning overlay at {url}"))?;
-    Ok(())
+    let overlay = reasoning_overlay_binary()?;
+    std::process::Command::new(&overlay)
+        .arg("--url")
+        .arg(&url)
+        .arg("--parent-pid")
+        .arg(std::process::id().to_string())
+        .spawn()
+        .with_context(|| format!("failed to launch reasoning overlay: {}", overlay.display()))
+}
+
+fn reasoning_overlay_binary() -> Result<PathBuf> {
+    let current = std::env::current_exe().context("cannot determine claudex executable path")?;
+    let dir = current
+        .parent()
+        .context("cannot determine claudex executable directory")?;
+    let candidate = dir.join(if cfg!(windows) {
+        "claudex-reasoning-overlay.exe"
+    } else {
+        "claudex-reasoning-overlay"
+    });
+    if candidate.exists() {
+        Ok(candidate)
+    } else {
+        anyhow::bail!(
+            "reasoning overlay binary not found at {}; build/install claudex-reasoning-overlay",
+            candidate.display()
+        )
+    }
 }
 
 fn resolve_launcher_profile_name(
@@ -453,7 +490,14 @@ fn is_current_proxy_health(version: Option<&str>, body_limit: Option<&str>) -> b
     version == Some(env!("CARGO_PKG_VERSION"))
         && body_limit
             .and_then(|value| value.parse::<usize>().ok())
-            .is_some_and(|limit| limit >= proxy::REQUEST_BODY_LIMIT_BYTES)
+            .is_some_and(|limit| limit == current_request_body_limit_bytes())
+}
+
+fn current_request_body_limit_bytes() -> usize {
+    proxy::request_body_limit_bytes_from_env(
+        std::env::var(proxy::REQUEST_BODY_LIMIT_ENV).ok().as_deref(),
+    )
+    .unwrap_or(proxy::DEFAULT_REQUEST_BODY_LIMIT_BYTES)
 }
 
 fn find_available_local_port(host: &str) -> Result<u16> {
@@ -553,22 +597,23 @@ mod tests {
 
     #[test]
     fn proxy_health_requires_current_version_and_body_limit() {
+        let current_limit = current_request_body_limit_bytes();
         assert!(is_current_proxy_health(
             Some(env!("CARGO_PKG_VERSION")),
-            Some(&proxy::REQUEST_BODY_LIMIT_BYTES.to_string())
-        ));
-        assert!(is_current_proxy_health(
-            Some(env!("CARGO_PKG_VERSION")),
-            Some(&(proxy::REQUEST_BODY_LIMIT_BYTES + 1).to_string())
+            Some(&current_limit.to_string())
         ));
         assert!(!is_current_proxy_health(None, None));
         assert!(!is_current_proxy_health(
             Some("0.0.0"),
-            Some(&proxy::REQUEST_BODY_LIMIT_BYTES.to_string())
+            Some(&current_limit.to_string())
         ));
         assert!(!is_current_proxy_health(
             Some(env!("CARGO_PKG_VERSION")),
-            Some("2097152")
+            Some(&(current_limit + 1).to_string())
+        ));
+        assert!(!is_current_proxy_health(
+            Some(env!("CARGO_PKG_VERSION")),
+            Some("not-a-number")
         ));
     }
 }
