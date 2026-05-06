@@ -193,7 +193,12 @@ fn format_verification_recommendation_error(recommendation: &str) -> String {
     } else {
         format!("OpenAI requires account verification for this request: {recommendation}")
     };
-    AnthropicError::new("permission_error", message, axum::http::StatusCode::FORBIDDEN).sse()
+    AnthropicError::new(
+        "permission_error",
+        message,
+        axum::http::StatusCode::FORBIDDEN,
+    )
+    .sse()
 }
 
 fn is_context_overflow_error(message: &str) -> bool {

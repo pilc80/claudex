@@ -683,6 +683,24 @@ async fn try_forward(
                     return Ok(response);
                 }
 
+                if let Some(anthropic_err) = preflight.transport_error {
+                    dump_proxy_error(
+                        &profile.name,
+                        "claude_error",
+                        &url,
+                        status.as_u16(),
+                        &translated.body,
+                        String::from_utf8_lossy(&preflight.buffered).to_string(),
+                        Some(&anthropic_err.json()),
+                    );
+                    let response = Response::builder()
+                        .status(anthropic_err.http_status)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&anthropic_err.json())?))
+                        .map_err(|e| anyhow::anyhow!("failed to build error response: {e}"))?;
+                    return Ok(response);
+                }
+
                 let (stream, upstream_capture) = capture_stream(preflight.stream);
                 let translated_stream =
                     adapter.translate_stream(Box::pin(stream), translated.tool_name_map);
@@ -785,6 +803,7 @@ const PREFLIGHT_MAX_BYTES: usize = 2 * 1024 * 1024;
 struct ResponsesStreamPreflight {
     context_overflow: bool,
     provider_error: Option<AnthropicError>,
+    transport_error: Option<AnthropicError>,
     buffered: Vec<u8>,
     stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
 }
@@ -796,12 +815,22 @@ async fn preflight_openai_responses_stream(
     let mut buffered = Vec::new();
     let mut context_overflow = false;
     let mut provider_error = None;
+    let mut transport_error = None;
 
     while buffered.len() < PREFLIGHT_MAX_BYTES {
         let Some(chunk) = stream.next().await else {
             break;
         };
-        let chunk = chunk?;
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(err) => {
+                transport_error = Some(error_translation::from_stream_transport(
+                    &err.to_string(),
+                    None,
+                ));
+                break;
+            }
+        };
         buffered.extend_from_slice(&chunk);
         provider_error = buffered_provider_error(&buffered);
         if provider_error.is_some() {
@@ -829,6 +858,7 @@ async fn preflight_openai_responses_stream(
     Ok(ResponsesStreamPreflight {
         context_overflow,
         provider_error,
+        transport_error,
         buffered,
         stream: Box::pin(output),
     })
@@ -908,16 +938,45 @@ fn buffered_has_context_overflow(buffered: &[u8]) -> bool {
 }
 
 fn buffered_has_translatable_responses_content(buffered: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(buffered);
-    text.contains("event: response.output_text.delta")
-        || text.contains("event: response.output_item.done")
-        || text.contains("event: response.output_item.added")
-        || text.contains("event: response.function_call_arguments.delta")
-        || text.contains("event: response.completed")
-        || text.contains("event: response.failed")
-        || parse_buffered_sse_json(buffered)
-            .iter()
-            .any(|event| event.get("type").and_then(|v| v.as_str()) == Some("error"))
+    parse_buffered_sse_json(buffered)
+        .iter()
+        .any(responses_event_has_visible_content)
+}
+
+fn responses_event_has_visible_content(event: &Value) -> bool {
+    match event.get("type").and_then(|v| v.as_str()) {
+        Some("response.output_text.delta") => event
+            .get("delta")
+            .and_then(|v| v.as_str())
+            .is_some_and(|delta| !delta.is_empty()),
+        Some("response.output_item.added") => {
+            event.pointer("/item/type").and_then(|v| v.as_str()) == Some("function_call")
+        }
+        Some("response.output_item.done") => event.get("item").is_some_and(message_item_has_text),
+        Some("response.function_call_arguments.delta") => event
+            .get("delta")
+            .and_then(|v| v.as_str())
+            .is_some_and(|delta| !delta.is_empty()),
+        Some("response.completed") | Some("response.incomplete") | Some("response.failed") => true,
+        Some("error") => true,
+        _ => false,
+    }
+}
+
+fn message_item_has_text(item: &Value) -> bool {
+    item.get("type").and_then(|v| v.as_str()) == Some("message")
+        && item
+            .get("content")
+            .and_then(|v| v.as_array())
+            .is_some_and(|content| {
+                content.iter().any(|part| {
+                    part.get("type").and_then(|v| v.as_str()) == Some("output_text")
+                        && part
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|text| !text.is_empty())
+                })
+            })
 }
 
 fn capture_stream<S>(
@@ -1320,6 +1379,20 @@ mod tests {
         assert!(String::from_utf8_lossy(&preflight.buffered).contains("context_length_exceeded"));
     }
 
+    #[test]
+    fn test_responses_preflight_does_not_treat_hidden_reasoning_as_visible_content() {
+        let buffered = b"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"summary\":[]}}\n\n";
+
+        assert!(!buffered_has_translatable_responses_content(buffered));
+    }
+
+    #[test]
+    fn test_responses_preflight_treats_function_call_as_visible_content() {
+        let buffered = b"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"call_1\"}}\n\n";
+
+        assert!(buffered_has_translatable_responses_content(buffered));
+    }
+
     #[tokio::test]
     async fn test_responses_preflight_extracts_overloaded_error() {
         let input = futures::stream::iter(vec![Ok(Bytes::from(
@@ -1357,14 +1430,20 @@ mod tests {
         assert_eq!(error.http_status, StatusCode::FORBIDDEN);
         assert!(error.message.contains("trusted_access_for_cyber"));
         assert!(error.message.contains("trusted access for cyber"));
-        assert!(!error.message.contains("Our servers are currently overloaded"));
+        assert!(!error
+            .message
+            .contains("Our servers are currently overloaded"));
     }
 
     #[tokio::test]
     async fn test_responses_preflight_extracts_split_overloaded_error() {
         let input = futures::stream::iter(vec![
-            Ok(Bytes::from("event: error\ndata: {\"type\":\"error\",\"error\":")),
-            Ok(Bytes::from("{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n")),
+            Ok(Bytes::from(
+                "event: error\ndata: {\"type\":\"error\",\"error\":",
+            )),
+            Ok(Bytes::from(
+                "{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n",
+            )),
         ]);
 
         let preflight = preflight_openai_responses_stream(Box::pin(input))
