@@ -174,6 +174,28 @@ fn format_provider_error_event(event: &Value) -> Option<String> {
     error_translation::from_responses_event(event).map(|err| err.sse())
 }
 
+fn verification_recommendation(event: &Value) -> Option<String> {
+    event
+        .pointer("/metadata/openai_verification_recommendation/0")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            event
+                .pointer("/response/metadata/openai_verification_recommendation/0")
+                .and_then(|v| v.as_str())
+        })
+        .map(ToOwned::to_owned)
+}
+
+fn format_verification_recommendation_error(recommendation: &str) -> String {
+    let message = if recommendation == "trusted_access_for_cyber" {
+        "OpenAI requires trusted access for cyber for this request: trusted_access_for_cyber"
+            .to_string()
+    } else {
+        format!("OpenAI requires account verification for this request: {recommendation}")
+    };
+    AnthropicError::new("permission_error", message, axum::http::StatusCode::FORBIDDEN).sse()
+}
+
 fn is_context_overflow_error(message: &str) -> bool {
     error_translation::is_context_overflow_text(message)
 }
@@ -210,6 +232,7 @@ struct ResponsesStreamState {
     last_event_type: Option<String>,
     current_tool_name: Option<String>,
     current_tool_saw_argument_delta: bool,
+    verification_recommendation: Option<String>,
 }
 
 impl ResponsesStreamState {
@@ -227,6 +250,7 @@ impl ResponsesStreamState {
             last_event_type: None,
             current_tool_name: None,
             current_tool_saw_argument_delta: false,
+            verification_recommendation: None,
         }
     }
 
@@ -279,8 +303,16 @@ impl ResponsesStreamState {
         }
         capture_reasoning_event(event_type, &json);
         match event_type {
+            "response.metadata" => {
+                if let Some(recommendation) = verification_recommendation(&json) {
+                    self.verification_recommendation = Some(recommendation);
+                }
+                vec![]
+            }
             "error" => {
-                if let Some(event) = format_provider_error_event(&json) {
+                if let Some(recommendation) = self.verification_recommendation.as_deref() {
+                    vec![format_verification_recommendation_error(recommendation)]
+                } else if let Some(event) = format_provider_error_event(&json) {
                     vec![event]
                 } else {
                     let message = json
@@ -513,7 +545,9 @@ impl ResponsesStreamState {
                 vec![]
             }
             "response.failed" => {
-                if let Some(event) = format_provider_error_event(&json) {
+                if let Some(recommendation) = self.verification_recommendation.as_deref() {
+                    vec![format_verification_recommendation_error(recommendation)]
+                } else if let Some(event) = format_provider_error_event(&json) {
                     vec![event]
                 } else {
                     let message = json
@@ -925,6 +959,50 @@ mod tests {
         assert!(events[0].contains("event: error"));
         assert!(events[0].contains("overloaded_error"));
         assert!(events[0].contains("Our servers are currently overloaded"));
+    }
+
+    #[test]
+    fn test_metadata_verification_overrides_later_overloaded_error() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        assert!(state
+            .process_line(
+                r#"data: {"type":"response.metadata","metadata":{"openai_verification_recommendation":["trusted_access_for_cyber"]}}"#,
+            )
+            .is_empty());
+
+        let events = state.process_line(
+            r#"data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}"#,
+        );
+
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("event: error"));
+        assert!(events[0].contains("permission_error"));
+        assert!(events[0].contains("trusted_access_for_cyber"));
+        assert!(events[0].contains("trusted access for cyber"));
+        assert!(!events[0].contains("overloaded_error"));
+        assert!(!events[0].contains("Our servers are currently overloaded"));
+    }
+
+    #[tokio::test]
+    async fn test_metadata_verification_stream_error_before_message_start() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(concat!(
+            "event: response.metadata\n",
+            "data: {\"type\":\"response.metadata\",\"metadata\":{\"openai_verification_recommendation\":[\"trusted_access_for_cyber\"]}}\n\n",
+            "event: error\n",
+            "data: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"Our servers are currently overloaded. Please try again later.\"}}\n\n",
+        )))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+        let first = stream.next().await.unwrap().unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+
+        assert!(text.contains("event: error"));
+        assert!(text.contains("permission_error"));
+        assert!(text.contains("trusted_access_for_cyber"));
+        assert!(text.contains("trusted access for cyber"));
+        assert!(!text.contains("message_start"));
+        assert!(!text.contains("overloaded_error"));
+        assert!(!text.contains("Our servers are currently overloaded"));
+        assert!(stream.next().await.is_none());
     }
 
     #[test]

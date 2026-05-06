@@ -665,6 +665,24 @@ async fn try_forward(
                     return Ok(response);
                 }
 
+                if let Some(anthropic_err) = preflight.provider_error {
+                    dump_proxy_error(
+                        &profile.name,
+                        "claude_error",
+                        &url,
+                        status.as_u16(),
+                        &translated.body,
+                        String::from_utf8_lossy(&preflight.buffered).to_string(),
+                        Some(&anthropic_err.json()),
+                    );
+                    let response = Response::builder()
+                        .status(anthropic_err.http_status)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&anthropic_err.json())?))
+                        .map_err(|e| anyhow::anyhow!("failed to build error response: {e}"))?;
+                    return Ok(response);
+                }
+
                 let (stream, upstream_capture) = capture_stream(preflight.stream);
                 let translated_stream =
                     adapter.translate_stream(Box::pin(stream), translated.tool_name_map);
@@ -766,6 +784,7 @@ const PREFLIGHT_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 struct ResponsesStreamPreflight {
     context_overflow: bool,
+    provider_error: Option<AnthropicError>,
     buffered: Vec<u8>,
     stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
 }
@@ -776,6 +795,7 @@ async fn preflight_openai_responses_stream(
     let mut stream = input;
     let mut buffered = Vec::new();
     let mut context_overflow = false;
+    let mut provider_error = None;
 
     while buffered.len() < PREFLIGHT_MAX_BYTES {
         let Some(chunk) = stream.next().await else {
@@ -783,6 +803,10 @@ async fn preflight_openai_responses_stream(
         };
         let chunk = chunk?;
         buffered.extend_from_slice(&chunk);
+        provider_error = buffered_provider_error(&buffered);
+        if provider_error.is_some() {
+            break;
+        }
         if buffered_has_context_overflow(&buffered) {
             context_overflow = true;
             break;
@@ -804,9 +828,77 @@ async fn preflight_openai_responses_stream(
 
     Ok(ResponsesStreamPreflight {
         context_overflow,
+        provider_error,
         buffered,
         stream: Box::pin(output),
     })
+}
+
+fn buffered_provider_error(buffered: &[u8]) -> Option<AnthropicError> {
+    let mut verification_recommendation = None;
+    for event in parse_buffered_sse_json(buffered) {
+        if let Some(recommendation) = verification_recommendation_from_event(&event) {
+            verification_recommendation = Some(recommendation);
+        }
+        if let Some(error) = error_translation::from_responses_event(&event) {
+            if error.error_type != "invalid_request_error"
+                || !error_translation::is_context_overflow_text(&error.message)
+            {
+                return Some(
+                    verification_recommendation
+                        .as_deref()
+                        .map(verification_recommendation_error)
+                        .unwrap_or(error),
+                );
+            }
+        }
+    }
+    None
+}
+
+fn verification_recommendation_from_event(event: &Value) -> Option<String> {
+    event
+        .pointer("/metadata/openai_verification_recommendation/0")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            event
+                .pointer("/response/metadata/openai_verification_recommendation/0")
+                .and_then(|v| v.as_str())
+        })
+        .map(ToOwned::to_owned)
+}
+
+fn verification_recommendation_error(recommendation: &str) -> AnthropicError {
+    let message = if recommendation == "trusted_access_for_cyber" {
+        "OpenAI requires trusted access for cyber for this request: trusted_access_for_cyber"
+            .to_string()
+    } else {
+        format!("OpenAI requires account verification for this request: {recommendation}")
+    };
+    AnthropicError::new("permission_error", message, StatusCode::FORBIDDEN)
+}
+
+fn parse_buffered_sse_json(buffered: &[u8]) -> Vec<Value> {
+    let text = String::from_utf8_lossy(buffered);
+    let mut events = text.split("\n\n").collect::<Vec<_>>();
+    if !text.ends_with("\n\n") {
+        events.pop();
+    }
+    events
+        .into_iter()
+        .filter_map(|event| {
+            let data = event
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if data.is_empty() {
+                None
+            } else {
+                serde_json::from_str(&data).ok()
+            }
+        })
+        .collect()
 }
 
 fn buffered_has_context_overflow(buffered: &[u8]) -> bool {
@@ -823,7 +915,9 @@ fn buffered_has_translatable_responses_content(buffered: &[u8]) -> bool {
         || text.contains("event: response.function_call_arguments.delta")
         || text.contains("event: response.completed")
         || text.contains("event: response.failed")
-        || text.contains("event: error")
+        || parse_buffered_sse_json(buffered)
+            .iter()
+            .any(|event| event.get("type").and_then(|v| v.as_str()) == Some("error"))
 }
 
 fn capture_stream<S>(
@@ -1224,6 +1318,62 @@ mod tests {
 
         assert!(preflight.context_overflow);
         assert!(String::from_utf8_lossy(&preflight.buffered).contains("context_length_exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_responses_preflight_extracts_overloaded_error() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(
+            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"Our servers are currently overloaded. Please try again later.\"}}\n\n",
+        ))]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+
+        let error = preflight.provider_error.unwrap();
+        assert_eq!(error.error_type, "overloaded_error");
+        assert_eq!(error.http_status, StatusCode::from_u16(529).unwrap());
+        assert_eq!(
+            error.message,
+            "Our servers are currently overloaded. Please try again later."
+        );
+    }
+
+    #[tokio::test]
+    async fn test_responses_preflight_metadata_verification_overrides_overloaded_error() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(concat!(
+            "event: response.metadata\n",
+            "data: {\"type\":\"response.metadata\",\"metadata\":{\"openai_verification_recommendation\":[\"trusted_access_for_cyber\"]}}\n\n",
+            "event: error\n",
+            "data: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"Our servers are currently overloaded. Please try again later.\"}}\n\n",
+        )))]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+
+        let error = preflight.provider_error.unwrap();
+        assert_eq!(error.error_type, "permission_error");
+        assert_eq!(error.http_status, StatusCode::FORBIDDEN);
+        assert!(error.message.contains("trusted_access_for_cyber"));
+        assert!(error.message.contains("trusted access for cyber"));
+        assert!(!error.message.contains("Our servers are currently overloaded"));
+    }
+
+    #[tokio::test]
+    async fn test_responses_preflight_extracts_split_overloaded_error() {
+        let input = futures::stream::iter(vec![
+            Ok(Bytes::from("event: error\ndata: {\"type\":\"error\",\"error\":")),
+            Ok(Bytes::from("{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n")),
+        ]);
+
+        let preflight = preflight_openai_responses_stream(Box::pin(input))
+            .await
+            .unwrap();
+
+        let error = preflight.provider_error.unwrap();
+        assert_eq!(error.error_type, "overloaded_error");
+        assert_eq!(error.message, "busy");
     }
 
     #[tokio::test]
