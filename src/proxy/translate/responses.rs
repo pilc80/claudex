@@ -2,8 +2,12 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use crate::proxy::util::{truncate_tool_name, ToolNameMap};
+
+const DEDUPE_FUNCTION_OUTPUT_MIN_BYTES: usize = 4096;
+const DEDUPE_KEEP_RECENT_INPUT_ITEMS: usize = 64;
 
 pub fn request_has_current_image(anthropic: &Value) -> bool {
     anthropic
@@ -158,6 +162,8 @@ pub fn anthropic_to_responses(
             }
         }
     }
+
+    dedupe_old_function_call_outputs(&mut input);
 
     // System prompt → instructions
     let instructions = anthropic
@@ -650,9 +656,112 @@ fn extract_tool_result_content(block: &Value) -> String {
     }
 }
 
+fn dedupe_old_function_call_outputs(input: &mut [Value]) {
+    let recent_start = input.len().saturating_sub(DEDUPE_KEEP_RECENT_INPUT_ITEMS);
+    let mut first_seen: HashMap<String, String> = HashMap::new();
+    let mut omitted = 0usize;
+    let mut omitted_bytes = 0usize;
+
+    for (index, item) in input.iter_mut().enumerate() {
+        if item.get("type").and_then(|v| v.as_str()) != Some("function_call_output") {
+            continue;
+        }
+        let Some(output) = item.get("output").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let output_bytes = output.len();
+        if output_bytes < DEDUPE_FUNCTION_OUTPUT_MIN_BYTES {
+            continue;
+        }
+
+        let hash = format!("{:x}", Sha256::digest(output.as_bytes()));
+        if let Some(first_call_id) = first_seen.get(&hash) {
+            if index < recent_start {
+                let call_id = item
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<unknown>");
+                item["output"] = json!(format!(
+                    "[Duplicate tool output omitted by claudex: same content as {first_call_id}, sha256={hash}, original_bytes={output_bytes}, call_id={call_id}.]"
+                ));
+                omitted += 1;
+                omitted_bytes += output_bytes;
+            }
+        } else {
+            let call_id = item
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<unknown>")
+                .to_string();
+            first_seen.insert(hash, call_id);
+        }
+    }
+
+    if omitted > 0 {
+        tracing::info!(
+            omitted_function_outputs = omitted,
+            omitted_function_output_bytes = omitted_bytes,
+            "deduplicated historical function_call_output payloads"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn function_output(call_id: &str, output: &str) -> Value {
+        json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        })
+    }
+
+    #[test]
+    fn test_dedupe_old_large_duplicate_function_outputs() {
+        let duplicate = "x".repeat(DEDUPE_FUNCTION_OUTPUT_MIN_BYTES);
+        let mut input = vec![
+            function_output("call_1", &duplicate),
+            function_output("call_2", &duplicate),
+        ];
+        input.extend((0..DEDUPE_KEEP_RECENT_INPUT_ITEMS).map(|i| {
+            json!({"role":"user","type":"message","content":[{"type":"input_text","text":format!("recent {i}")}]})
+        }));
+
+        dedupe_old_function_call_outputs(&mut input);
+
+        assert_eq!(input[0]["output"], duplicate);
+        let deduped = input[1]["output"].as_str().unwrap();
+        assert!(deduped.contains("Duplicate tool output omitted by claudex"));
+        assert!(deduped.contains("same content as call_1"));
+    }
+
+    #[test]
+    fn test_dedupe_preserves_small_duplicate_function_outputs() {
+        let mut input = vec![
+            function_output("call_1", "same"),
+            function_output("call_2", "same"),
+        ];
+        dedupe_old_function_call_outputs(&mut input);
+
+        assert_eq!(input[0]["output"], "same");
+        assert_eq!(input[1]["output"], "same");
+    }
+
+    #[test]
+    fn test_dedupe_preserves_recent_duplicate_function_outputs() {
+        let duplicate = "x".repeat(DEDUPE_FUNCTION_OUTPUT_MIN_BYTES);
+        let mut input = vec![
+            function_output("call_1", &duplicate),
+            function_output("call_2", &duplicate),
+        ];
+
+        dedupe_old_function_call_outputs(&mut input);
+
+        assert_eq!(input[0]["output"], duplicate);
+        assert_eq!(input[1]["output"], duplicate);
+    }
 
     #[test]
     fn test_basic_user_message() {

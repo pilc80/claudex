@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
 use serde_json::{json, Value};
+use std::error::Error;
 use std::pin::Pin;
 
 use crate::proxy::error_translation::{self, AnthropicError};
@@ -53,6 +54,7 @@ where
                     }
                 }
                 Err(e) => {
+                    log_stream_read_error(&e, &state);
                     yield Ok(Bytes::from(format_error_event(&format!("upstream stream read error: {e}"))));
                     return;
                 }
@@ -133,6 +135,35 @@ fn format_error_event(message: &str) -> String {
         axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     )
     .sse()
+}
+
+fn source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut source = error.source();
+    while let Some(err) = source {
+        chain.push(err.to_string());
+        source = err.source();
+    }
+    chain
+}
+
+fn log_stream_read_error(error: &reqwest::Error, state: &ResponsesStreamState) {
+    let sources = source_chain(error);
+    tracing::warn!(
+        error = %error,
+        error_debug = ?error,
+        is_decode = error.is_decode(),
+        is_timeout = error.is_timeout(),
+        is_body = error.is_body(),
+        is_connect = error.is_connect(),
+        source_chain = ?sources,
+        last_event_type = ?state.last_event_type,
+        block_started = state.block_started,
+        has_tool_use = state.has_tool_use,
+        current_tool_name = ?state.current_tool_name,
+        current_tool_saw_argument_delta = state.current_tool_saw_argument_delta,
+        "Responses stream read error"
+    );
 }
 
 fn format_context_overflow_event() -> String {
@@ -1021,6 +1052,26 @@ mod tests {
 
         assert!(output.contains("tail"));
         assert!(!output.contains("event: error"));
+    }
+
+    #[test]
+    fn test_stream_state_tracks_open_tool_for_diagnostics() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"Read","arguments":"","status":"in_progress"}}"#,
+        );
+        state.process_line(
+            r#"data: {"type":"response.function_call_arguments.delta","delta":"{\"file_path\""}"#,
+        );
+
+        assert_eq!(
+            state.last_event_type.as_deref(),
+            Some("response.function_call_arguments.delta")
+        );
+        assert!(state.block_started);
+        assert!(state.has_tool_use);
+        assert_eq!(state.current_tool_name.as_deref(), Some("Read"));
+        assert!(state.current_tool_saw_argument_delta);
     }
 
     #[tokio::test]
