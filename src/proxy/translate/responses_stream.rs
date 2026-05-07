@@ -55,7 +55,13 @@ where
                 }
                 Err(e) => {
                     log_stream_read_error(&e, &state);
-                    yield Ok(Bytes::from(format_error_event(&format!("upstream stream read error: {e}"))));
+                    if state.block_started {
+                        yield Ok(Bytes::from(format_sse("content_block_stop", &json!({
+                            "type": "content_block_stop",
+                            "index": state.block_index,
+                        }))));
+                    }
+                    yield Ok(Bytes::from(format_error_event(&stream_read_error_message(&e))));
                     return;
                 }
             }
@@ -135,6 +141,14 @@ fn format_error_event(message: &str) -> String {
         axum::http::StatusCode::INTERNAL_SERVER_ERROR,
     )
     .sse()
+}
+
+fn stream_read_error_message(error: &reqwest::Error) -> String {
+    let root = source_chain(error)
+        .into_iter()
+        .last()
+        .unwrap_or_else(|| error.to_string());
+    format!("upstream stream read error: {root}")
 }
 
 fn source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
@@ -1088,6 +1102,34 @@ mod tests {
         assert!(text.contains("event: error"));
         assert!(!text.contains("message_start"));
         assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_stream_transport_error_after_text_closes_block_and_surfaces_root_cause() {
+        let error = reqwest::Client::new()
+            .get("http://127.0.0.1:9")
+            .send()
+            .await
+            .unwrap_err();
+        let input = futures::stream::iter(vec![
+            Ok(Bytes::from(
+                "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+            )),
+            Err(error),
+        ]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("event: message_start"));
+        assert!(output.contains("partial"));
+        assert!(output.contains("event: content_block_stop"));
+        assert!(output.contains("event: error"));
+        assert!(output.contains("upstream stream read error:"));
+        assert!(output.contains("Connection refused") || output.contains("tcp connect error"));
     }
 
     #[tokio::test]
