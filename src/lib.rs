@@ -8,7 +8,6 @@ mod context;
 mod oauth;
 mod process;
 mod proxy;
-mod reasoning;
 mod router;
 mod sets;
 mod terminal;
@@ -20,13 +19,12 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use std::ffi::OsStr;
 use std::net::TcpListener;
-use std::path::PathBuf;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use cli::{AuthAction, Cli, Commands, ProfileAction, ProxyAction, ReasoningAction, SetsAction};
+use cli::{AuthAction, Cli, Commands, ProfileAction, ProxyAction, SetsAction};
 use config::{ClaudexConfig, HyperlinksConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,22 +100,8 @@ async fn run_launcher() -> Result<()> {
         .clone();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (reasoning, args) = split_reasoning_flag(args);
-    let mut overlay = if reasoning {
-        Some(launch_reasoning_watcher(
-            &config.proxy_host,
-            config.proxy_port,
-        )?)
-    } else {
-        None
-    };
     let model = std::env::var("CLAUDEX_MODEL").ok();
-    let result = process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false);
-    if let Some(child) = overlay.as_mut() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    result?;
+    process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false)?;
 
     if let Some(log_path) = proxy::proxy_log_path() {
         if log_path.exists() {
@@ -126,54 +110,6 @@ async fn run_launcher() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn split_reasoning_flag(args: Vec<String>) -> (bool, Vec<String>) {
-    let mut enabled = false;
-    let args = args
-        .into_iter()
-        .filter(|arg| {
-            if arg == "--reasoning" {
-                enabled = true;
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-    (enabled, args)
-}
-
-fn launch_reasoning_watcher(host: &str, port: u16) -> Result<std::process::Child> {
-    let url = format!("http://{host}:{port}/reasoning/overlay");
-    let overlay = reasoning_overlay_binary()?;
-    std::process::Command::new(&overlay)
-        .arg("--url")
-        .arg(&url)
-        .arg("--parent-pid")
-        .arg(std::process::id().to_string())
-        .spawn()
-        .with_context(|| format!("failed to launch reasoning overlay: {}", overlay.display()))
-}
-
-fn reasoning_overlay_binary() -> Result<PathBuf> {
-    let current = std::env::current_exe().context("cannot determine claudex executable path")?;
-    let dir = current
-        .parent()
-        .context("cannot determine claudex executable directory")?;
-    let candidate = dir.join(if cfg!(windows) {
-        "claudex-reasoning-overlay.exe"
-    } else {
-        "claudex-reasoning-overlay"
-    });
-    if candidate.exists() {
-        Ok(candidate)
-    } else {
-        anyhow::bail!(
-            "reasoning overlay binary not found at {}; build/install claudex-reasoning-overlay",
-            candidate.display()
-        )
-    }
 }
 
 fn resolve_launcher_profile_name(
@@ -274,20 +210,6 @@ async fn run_config_cli() -> Result<()> {
             }
             ProxyAction::Status => {
                 process::daemon::proxy_status()?;
-            }
-        },
-
-        Some(Commands::Reasoning { action }) => match action {
-            ReasoningAction::Watch { host, port } => {
-                let host = host.unwrap_or_else(|| config.proxy_host.clone());
-                let port = port.unwrap_or(config.proxy_port);
-                reasoning::watch_live(&host, port).await?;
-            }
-            ReasoningAction::Tail { lines } => {
-                reasoning::tail(lines)?;
-            }
-            ReasoningAction::Clear => {
-                reasoning::clear()?;
             }
         },
 
@@ -575,24 +497,6 @@ mod tests {
             hyperlinks_from_env(Some("auto")).unwrap(),
             Some(HyperlinksConfig::Auto)
         );
-    }
-
-    #[test]
-    fn launcher_reasoning_flag_is_stripped() {
-        let (enabled, args) = split_reasoning_flag(vec![
-            "--reasoning".to_string(),
-            "--resume".to_string(),
-            "abc".to_string(),
-        ]);
-        assert!(enabled);
-        assert_eq!(args, vec!["--resume", "abc"]);
-    }
-
-    #[test]
-    fn launcher_reasoning_flag_absent_keeps_args() {
-        let (enabled, args) = split_reasoning_flag(vec!["--resume".to_string(), "abc".to_string()]);
-        assert!(!enabled);
-        assert_eq!(args, vec!["--resume", "abc"]);
     }
 
     #[test]

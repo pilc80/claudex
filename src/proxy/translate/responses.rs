@@ -400,20 +400,6 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
                         "input": input,
                     }));
                 }
-                "reasoning" => {
-                    let text = extract_reasoning_text(item);
-                    if !text.is_empty() {
-                        crate::proxy::reasoning::publish(
-                            crate::reasoning::ReasoningEvent::new(
-                                resp.get("id").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                                item.get("id").and_then(|v| v.as_str()).unwrap_or("turn"),
-                                "openai-responses",
-                                "reasoning",
-                            )
-                            .text(text),
-                        );
-                    }
-                }
                 _ => {}
             }
         }
@@ -473,31 +459,6 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
         "stop_sequence": null,
         "usage": anthropic_usage,
     }))
-}
-
-fn extract_reasoning_text(item: &Value) -> String {
-    let mut parts = Vec::new();
-    if let Some(summary) = item.get("summary") {
-        match summary {
-            Value::String(text) => parts.push(text.clone()),
-            Value::Array(items) => {
-                for part in items {
-                    if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
-                        parts.push(text.to_string());
-                    } else if let Some(text) = part.as_str() {
-                        parts.push(text.to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    for key in ["text", "content", "reasoning", "reasoning_text"] {
-        if let Some(text) = item.get(key).and_then(|v| v.as_str()) {
-            parts.push(text.to_string());
-        }
-    }
-    parts.join("\n")
 }
 
 fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {

@@ -104,10 +104,17 @@ where
         }
 
         let stop_reason = if state.has_tool_use { "tool_use" } else { &state.stop_reason };
+        let mut usage = json!({"output_tokens": state.output_tokens});
+        if state.input_tokens > 0 {
+            usage["input_tokens"] = json!(state.input_tokens);
+        }
+        if state.cache_read_input_tokens > 0 {
+            usage["cache_read_input_tokens"] = json!(state.cache_read_input_tokens);
+        }
         yield Ok(Bytes::from(format_sse("message_delta", &json!({
             "type": "message_delta",
             "delta": {"stop_reason": stop_reason, "stop_sequence": null},
-            "usage": {"output_tokens": state.output_tokens}
+            "usage": usage
         }))));
         yield Ok(Bytes::from(format_sse("message_stop", &json!({"type": "message_stop"}))));
     };
@@ -244,6 +251,8 @@ struct ResponsesStreamState {
     block_started: bool,
     has_tool_use: bool,
     stop_reason: String,
+    input_tokens: u64,
+    cache_read_input_tokens: u64,
     output_tokens: u64,
     saw_text_delta: bool,
     saw_upstream_data: bool,
@@ -262,6 +271,8 @@ impl ResponsesStreamState {
             block_started: false,
             has_tool_use: false,
             stop_reason: "end_turn".to_string(),
+            input_tokens: 0,
+            cache_read_input_tokens: 0,
             output_tokens: 0,
             saw_text_delta: false,
             saw_upstream_data: false,
@@ -320,7 +331,6 @@ impl ResponsesStreamState {
         if !event_type.is_empty() {
             self.last_event_type = Some(event_type.to_string());
         }
-        capture_reasoning_event(event_type, &json);
         match event_type {
             "response.metadata" => {
                 if let Some(recommendation) = verification_recommendation(&json) {
@@ -526,6 +536,14 @@ impl ResponsesStreamState {
                 // Extract usage from the terminal response
                 if let Some(resp) = json.get("response") {
                     if let Some(usage) = resp.get("usage") {
+                        self.input_tokens = usage
+                            .get("input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        self.cache_read_input_tokens = usage
+                            .pointer("/input_tokens_details/cached_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
                         self.output_tokens = usage
                             .get("output_tokens")
                             .and_then(|v| v.as_u64())
@@ -736,91 +754,6 @@ impl ResponsesStreamState {
     }
 }
 
-fn capture_reasoning_event(event_type: &str, event: &Value) {
-    let mut texts = Vec::new();
-    if event_type.contains("reasoning") {
-        if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
-            texts.push(delta.to_string());
-        }
-        collect_reasoning_text(event, &mut texts);
-    } else if event_type == "response.output_item.added" {
-        if let Some(item) = event.get("item") {
-            if item.get("type").and_then(|v| v.as_str()) == Some("reasoning") {
-                collect_reasoning_text(item, &mut texts);
-            }
-        }
-    } else if event_type == "response.output_item.done" {
-        return;
-    } else if event_type == "response.completed" || event_type == "response.incomplete" {
-        if let Some(items) = event.pointer("/response/output").and_then(|v| v.as_array()) {
-            for item in items {
-                if item.get("type").and_then(|v| v.as_str()) == Some("reasoning") {
-                    collect_reasoning_text(item, &mut texts);
-                }
-            }
-        }
-        if let Some(tokens) = event
-            .pointer("/response/usage/output_tokens_details/reasoning_tokens")
-            .and_then(|v| v.as_u64())
-        {
-            crate::proxy::reasoning::publish(
-                crate::reasoning::ReasoningEvent::new(
-                    event
-                        .pointer("/response/id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown"),
-                    "turn",
-                    "openai-responses",
-                    "reasoning_tokens",
-                )
-                .value(json!(tokens)),
-            );
-        }
-    }
-
-    let text = texts
-        .into_iter()
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !text.is_empty() {
-        crate::proxy::reasoning::publish(
-            crate::reasoning::ReasoningEvent::new(
-                event
-                    .pointer("/response/id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("stream"),
-                event
-                    .get("item_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("turn"),
-                "openai-responses",
-                event_type,
-            )
-            .text(text),
-        );
-    }
-}
-
-fn collect_reasoning_text(value: &Value, texts: &mut Vec<String>) {
-    match value {
-        Value::String(text) => texts.push(text.clone()),
-        Value::Array(items) => {
-            for item in items {
-                collect_reasoning_text(item, texts);
-            }
-        }
-        Value::Object(map) => {
-            for key in ["summary", "text", "content", "reasoning", "reasoning_text"] {
-                if let Some(value) = map.get(key) {
-                    collect_reasoning_text(value, texts);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 fn output_item_types(items: &[Value]) -> Vec<String> {
     items
         .iter()
@@ -929,9 +862,32 @@ mod tests {
     fn test_completed_extracts_usage() {
         let mut state = ResponsesStreamState::new(ToolNameMap::new());
         state.process_line(
-            r#"data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":100,"output_tokens":50,"total_tokens":150}}}"#,
+            r#"data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":100,"output_tokens":50,"total_tokens":150,"input_tokens_details":{"cached_tokens":40}}}}"#,
         );
+        assert_eq!(state.input_tokens, 100);
+        assert_eq!(state.cache_read_input_tokens, 40);
         assert_eq!(state.output_tokens, 50);
+    }
+
+    #[tokio::test]
+    async fn test_completed_usage_is_emitted_in_final_message_delta() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(concat!(
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50,\"total_tokens\":150,\"input_tokens_details\":{\"cached_tokens\":40}}}}\n\n",
+        )))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("event: message_delta"));
+        assert!(output.contains("\"input_tokens\":100"));
+        assert!(output.contains("\"cache_read_input_tokens\":40"));
+        assert!(output.contains("\"output_tokens\":50"));
     }
 
     #[test]

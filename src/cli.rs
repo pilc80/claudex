@@ -45,12 +45,6 @@ pub enum Commands {
         action: ProxyAction,
     },
 
-    /// Watch provider-exposed reasoning captured by the proxy
-    Reasoning {
-        #[command(subcommand)]
-        action: ReasoningAction,
-    },
-
     /// Manage configuration
     Config {
         #[command(subcommand)]
@@ -173,27 +167,6 @@ pub enum SetsAction {
         #[arg(long)]
         global: bool,
     },
-}
-
-#[derive(Subcommand)]
-pub enum ReasoningAction {
-    /// Watch new reasoning events as they are captured
-    Watch {
-        /// Proxy host override
-        #[arg(long)]
-        host: Option<String>,
-        /// Proxy port override
-        #[arg(short, long)]
-        port: Option<u16>,
-    },
-    /// Print the last captured reasoning events
-    Tail {
-        /// Number of events to print
-        #[arg(short, long, default_value_t = 20)]
-        lines: usize,
-    },
-    /// Clear captured reasoning events
-    Clear,
 }
 
 #[derive(Subcommand)]

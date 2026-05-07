@@ -1,6 +1,6 @@
 [package]
 name = "claudex"
-version = "0.9.12"
+version = "0.9.14"
 edition = "2021"
 autobins = false
 description = "ChatGPT/Codex OAuth for Claude Code without an API key"
@@ -17,10 +17,6 @@ path = "src/bin/claudex.rs"
 [[bin]]
 name = "claudex-config"
 path = "src/bin/claudex-config.rs"
-
-[[bin]]
-name = "claudex-reasoning-overlay"
-path = "src/bin/claudex-reasoning-overlay.rs"
 
 [dependencies]
 # CLI
@@ -100,8 +96,6 @@ url = "2"
 # Utility
 which = "7"
 open = "5"
-tao = "0.34"
-wry = "0.53"
 
 # Self-update
 self_update = { version = "0.42", features = ["rustls", "archive-tar", "archive-zip"], default-features = false }
@@ -111,10 +105,6 @@ sha2 = "0.10"
 base64 = "0.22"
 rand = "0.10"
 urlencoding = "2.1.3"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSScreen"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["term", "poll", "signal", "process", "fs"] }

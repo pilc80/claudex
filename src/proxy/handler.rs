@@ -1314,7 +1314,6 @@ mod tests {
             shared_context: crate::context::sharing::SharedContext::new(),
             rag_index: None,
             token_manager: crate::oauth::manager::TokenManager::new(reqwest::Client::new()),
-            reasoning_bus: crate::proxy::reasoning::ReasoningBus::new(),
         };
         let profile = ProfileConfig {
             name: "dead-local".to_string(),
