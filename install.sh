@@ -338,13 +338,19 @@ install_binary() {
         INSTALLED_CONFIG_BIN="$config_dest"
         return 0
     fi
+    staging_binary="$INSTALL_DIR/.claudex.new.$$"
+    staging_config="$INSTALL_DIR/.claudex-config.new.$$"
+    cp "$src" "$staging_binary"
+    chmod +x "$staging_binary"
+    ln -s "claudex" "$staging_config"
+
+    "$staging_binary" --version >/dev/null
+    "$staging_config" --version >/dev/null
+
     backup_existing "$binary_dest"
     backup_existing "$config_dest"
-    rm -f "$binary_dest"
-    mv "$src" "$binary_dest"
-    chmod +x "$binary_dest"
-    rm -f "$config_dest"
-    ln -s "claudex" "$config_dest"
+    mv "$staging_binary" "$binary_dest"
+    mv "$staging_config" "$config_dest"
     INSTALLED_BIN="$binary_dest"
     INSTALLED_CONFIG_BIN="$config_dest"
 }

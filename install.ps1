@@ -313,14 +313,20 @@ function Deploy-Binary {
     if ((Test-Path $dest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $dest))) {
         Write-Host "Skipping copy because source and destination are the same file: $dest"
     } else {
+        $stagingDest = Join-Path $InstallDir (".claudex.new." + [Guid]::NewGuid() + ".exe")
+        Copy-Item -LiteralPath $source -Destination $stagingDest -Force
+        Invoke-Native "staged claudex --version" $stagingDest @("--version")
         Backup-Existing $dest
-        Copy-Item -LiteralPath $source -Destination $dest -Force
+        Move-Item -LiteralPath $stagingDest -Destination $dest -Force
     }
     if ((Test-Path $configDest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $configDest))) {
         Write-Host "Skipping copy because source and destination are the same file: $configDest"
     } else {
+        $stagingConfigDest = Join-Path $InstallDir (".claudex-config.new." + [Guid]::NewGuid() + ".exe")
+        Copy-Item -LiteralPath $source -Destination $stagingConfigDest -Force
+        Invoke-Native "staged claudex-config --version" $stagingConfigDest @("--version")
         Backup-Existing $configDest
-        Copy-Item -LiteralPath $source -Destination $configDest -Force
+        Move-Item -LiteralPath $stagingConfigDest -Destination $configDest -Force
     }
     Add-UserPath $InstallDir
 

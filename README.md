@@ -14,6 +14,17 @@ curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/in
 claudex
 ```
 
+## Key features
+
+- 🏆 **ChatGPT/Codex subscriptions** — use Claude Code through ChatGPT/Codex OAuth with no OpenAI API key.
+- 🏆 **Claude Code workflows** — keep tools, agents, long sessions, and parallel work across supported backends.
+- 🏆 **Text, image, and file support** — translate conversations, vision inputs, file/document blocks, tool calls, and streaming responses.
+- 🏆 **1M context support** — make `/context` aware of large GPT context windows such as `gpt-5.5` and `gpt-5.4-pro`.
+- 🏆 **Compaction support** — preserve `/compact`, auto-compaction, and context-limit recovery behavior.
+- 🏆 **Correct error translation** — surface OpenAI/Codex failures as actionable Claude Code errors.
+- 🏆 **Setup health checks** — use `claudex-config config doctor` to check config, auth, proxy state, setup, and reauthentication.
+- 🏆 **Local-first privacy** — run locally with explicit routing; OAuth tokens stay in the OS credential store/keychain.
+
 ## Why this fork?
 
 Most Claude Code -> Codex proxies are fine for text-only request routing. This
@@ -69,74 +80,33 @@ Claude Code
 
 ## Feature Status
 
-Legend: `✅` works well, `☑️` is verified working with external/version drift
-risk, `⚠️` is not fully confirmed, and `❌` has known issues or is
-intentionally unsupported.
+### ✅ Ready for everyday Claude Code use
 
-- ✅ Anthropic Messages -> OpenAI Responses request conversion.
-- ✅ Responses -> Anthropic response and SSE stream conversion.
-- ✅ `/compact` with streamed and non-streamed Responses shapes.
-- ✅ Codex context-overflow errors translate to Claude Code's context-limit
-  prompt so users can run `/compact` or `/clear` instead of seeing malformed
-  proxy responses.
-- ✅ Native Claude Code error semantics for context overflow, overload, rate
-  limits, auth/permission failures, request-size errors, and upstream transport
-  failures.
-- ✅ Actionable proxy error classification: deterministic request/account errors
-  are returned directly, while only retryable provider-health failures feed
-  retry, failover, and circuit breakers.
-- ✅ Error-only proxy dumps for upstream OpenAI errors and Claude-visible
-  translated errors.
-- ✅ Current-turn images, including optional `image_model` routing.
-- ✅ Old base64 image-history pruning to avoid oversized requests.
-- ✅ Tool calls/results, including current tool-result images.
-- ✅ Reasoning effort request mapping.
-- ✅ Structured output request mapping.
-- ✅ Document/file block mapping where Responses can represent it.
-- ✅ Prompt cache key and cached-token usage mapping.
-- ✅ Upstream `429` retry with capped `Retry-After` delay.
-- ✅ Responses stream hardening for failure/rate-limit events.
-- ✅ `/v1/models` exposes Claude model slots without duplicates.
-- ✅ Claude Code sees 1M context windows for `gpt-5.5`, `gpt-5.4-pro`,
-  and newer GPT models via the `[1m]` model suffix, so `/context` reports
-  the correct huge context limit. Older/smaller GPT models keep the legacy
-  auto-compact window for compatibility.
-- ✅ ChatGPT/Codex profiles intentionally map every Claude model slot to
-  `gpt-5.5` by default because this account rejects `gpt-5.5-mini`.
-- ✅ Claude Code visible `Web Search` works as a client-side tool.
-- ℹ️ Server-side Anthropic-hosted tools are intentionally out of proxy scope;
-  claudex keeps Claude Code's local tool path instead.
-- ℹ️ Codex hidden reasoning is not exposed as Claude Code thinking blocks.
+- ✅ ChatGPT/Codex OAuth profiles
+- ✅ Text conversations, tool use, and streaming tool calls
+- ✅ Image inputs and file/document inputs supported by Claude Code
+- ✅ Agentic and parallel Claude Code workflows
+- ✅ 1M `/context` support for large GPT models
+- ✅ `/compact`, auto-compaction, and context-limit recovery
+- ✅ OpenAI/Codex error translation
+- ✅ Prompt-cache and cached-token usage mapping
+- ✅ OAuth expiry checks and reauth prompts
+- ✅ Local installer and `config doctor` readiness checks
+- ✅ Safe staged installer updates
 
-Model aliases are an account-compatibility feature, not a bug workaround. Claude
-Code may choose a haiku/sonnet/opus slot internally, but ChatGPT/Codex accounts
-do not necessarily expose separate mini/pro/pro-tier model names through the
-Codex backend. This account currently returns `400 model is not supported` for
-`gpt-5.5-mini`, so the safe default maps every slot to `gpt-5.5`. If your
-account accepts a different model, put that model in `[profiles.models]`.
+### ⚠️ Depends on provider/account support
 
-When Codex reports that the request exceeds the model context window, claudex
-returns Claude Code's normal context-limit error shape instead of streaming a
-malformed proxy response. The user can then run `/compact` or `/clear` from
-Claude Code.
+- ⚠️ Web search/tool behavior
+- ⚠️ Non-Codex OpenAI-compatible providers
+- ⚠️ Model slot mapping (`haiku`, `sonnet`, `opus`)
+- ⚠️ Provider-specific request parameter stripping
+- ⚠️ Provider-specific model availability, e.g. mini/pro variants
 
-Provider errors are translated by root cause to Anthropic-compatible error
-semantics. Unlike lightweight Claude Code proxies that often collapse provider
-failures into generic 502s, claudex keeps the error actionable for Claude Code
-and the user: context overflow triggers Claude Code's normal compact flow,
-overloaded and rate-limited upstreams use Claude Code's native backoff/error UX,
-auth and permission failures stay recognizable, and local-model transport
-failures report the unavailable local server instead of a generic malformed
-HTTP 200 stream. Deterministic request/account errors such as invalid request
-schemas, unsupported models, missing parameters, auth, billing, permissions, and
-request-size failures are returned directly and do not poison circuit breakers;
-retryable provider-health failures such as rate limits, overload, timeouts, 5xx,
-and transport resets still feed retry, failover, and circuit-breaker protection.
+### ℹ️ Out of proxy scope by design
 
-claudex does not attempt fragile cross-protocol auto-compaction on purpose:
-Claude Code's compaction behavior and OpenAI Responses/Codex error shapes can
-change independently. Catching the context-limit signal and handing control back
-to Claude Code is simpler, safer, and less likely to break on future API drift.
+- ℹ️ Server-side Anthropic-hosted tools are intentionally out of scope. Claudex keeps Claude Code's local tool path instead.
+- ℹ️ Codex hidden reasoning is not exposed as Claude Code thinking blocks. Claudex preserves visible outputs and usage accounting without leaking hidden reasoning text.
+
 
 ## When to choose this fork
 

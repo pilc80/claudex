@@ -125,10 +125,15 @@ The config file is at `~/.config/claudex/config.toml`. See
   auth, proxy startup, profile selection, or version/health checks:
   1. Review whether `claudex-config config doctor` still covers the changed path.
   2. Update doctor checks and tests if the change can affect setup readiness.
-  3. Run doctor-related tests plus `claudex-config config doctor` against the
+  3. Run local CI-equivalent checks for the touched area before commit/push
+     (at minimum relevant tests, `cargo fmt --check`, `cargo check`, and
+     `cargo clippy -- -D warnings`).
+  4. Run doctor-related tests plus `claudex-config config doctor` against the
      installed binary.
-  4. Do not commit/release if doctor gives stale, incomplete, or misleading
-     guidance.
+  5. Do not commit/release if doctor gives stale, incomplete, or misleading
+     guidance or local checks indicate GitHub CI will fail.
+- After pushing any commit, check the GitHub CI run for that commit with `gh run`
+  and inspect failing logs before reporting the push/release as complete.
 
 ## Deployment Rules
 

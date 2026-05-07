@@ -167,6 +167,18 @@ fn windows_installer_handles_same_file_deploy_and_temp_cleanup() {
 }
 
 #[test]
+fn windows_installer_stages_new_binary_before_replacing_existing_one() {
+    let script = install_ps1();
+    assert!(script.contains(".claudex.new."));
+    assert!(script.contains("staged claudex --version"));
+    assert!(script.contains("Move-Item -LiteralPath $stagingDest -Destination $dest -Force"));
+    assert!(script.contains(".claudex-config.new."));
+    assert!(script.contains("staged claudex-config --version"));
+    assert!(script
+        .contains("Move-Item -LiteralPath $stagingConfigDest -Destination $configDest -Force"));
+}
+
+#[test]
 fn windows_installer_stops_cargo_bin_proxy_before_source_install() {
     let script = install_ps1();
     let stop_pos = script

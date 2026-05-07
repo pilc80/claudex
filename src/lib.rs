@@ -11,7 +11,6 @@ mod proxy;
 mod router;
 mod sets;
 mod terminal;
-mod tui;
 mod update;
 mod util;
 
