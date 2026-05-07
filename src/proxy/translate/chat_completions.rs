@@ -159,6 +159,7 @@ pub fn anthropic_to_openai(
     let model = anthropic
         .get("model")
         .and_then(|m| m.as_str())
+        .map(strip_context_window_suffix)
         .unwrap_or(default_model);
 
     let mut openai_req = json!({
@@ -220,6 +221,13 @@ pub fn anthropic_to_openai(
     }
 
     Ok((openai_req, tool_name_map))
+}
+
+fn strip_context_window_suffix(model: &str) -> &str {
+    model
+        .strip_suffix("[1m]")
+        .or_else(|| model.strip_suffix("[1M]"))
+        .unwrap_or(model)
 }
 
 /// Convert OpenAI Chat Completions response → Anthropic Messages API response
@@ -481,6 +489,16 @@ mod tests {
         });
         let result = a2o(&req, "default-model");
         assert_eq!(result["model"], "custom-model");
+    }
+
+    #[test]
+    fn test_model_override_strips_1m_suffix() {
+        let req = json!({
+            "model": "gpt-5.5[1M]",
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let result = a2o(&req, "default-model");
+        assert_eq!(result["model"], "gpt-5.5");
     }
 
     #[test]

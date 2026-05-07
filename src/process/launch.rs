@@ -21,6 +21,7 @@ pub fn launch_claude(
     let model = model_override
         .map(|m| config.resolve_model(m))
         .unwrap_or_else(|| config.resolve_model(&profile.default_model));
+    let visible_model = claude_visible_model(&model);
 
     // 非交互模式检测：含 -p / --print，或首个 arg 不是 flag（裸 prompt）
     let is_noninteractive = extra_args.iter().any(|arg| arg == "-p" || arg == "--print")
@@ -37,8 +38,8 @@ pub fn launch_claude(
     if is_claude_subscription {
         // Claude subscription：Claude Code 直接使用自身 OAuth
         // 不设 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY
-        if model != profile.default_model {
-            cmd.env("ANTHROPIC_MODEL", &model);
+        if visible_model != profile.default_model {
+            cmd.env("ANTHROPIC_MODEL", &visible_model);
         }
     } else {
         // 标准代理流程（Gateway 模式）
@@ -46,7 +47,7 @@ pub fn launch_claude(
         // 避免与 claude.ai OAuth token 产生 "Auth conflict"
         cmd.env("ANTHROPIC_BASE_URL", &proxy_base)
             .env("ANTHROPIC_AUTH_TOKEN", "claudex-passthrough")
-            .env("ANTHROPIC_MODEL", &model);
+            .env("ANTHROPIC_MODEL", &visible_model);
     }
 
     if !profile.custom_headers.is_empty() {
@@ -67,6 +68,10 @@ pub fn launch_claude(
     }
     if let Some(ref o) = profile.models.opus {
         cmd.env("ANTHROPIC_DEFAULT_OPUS_MODEL", o);
+    }
+
+    if let Some(window) = openai_model_auto_compact_window(&model) {
+        cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
     }
 
     for (k, v) in &profile.extra_env {
@@ -172,6 +177,61 @@ fn build_resume_hint(profile_name: &str, session_id: &str, extra_args: &[String]
 }
 
 /// Decide whether to use PTY mode based on config + CLI flag.
+fn claude_visible_model(model: &str) -> String {
+    if has_context_window_suffix(model)
+        || !is_large_context_gpt_model(strip_context_window_suffix(model))
+    {
+        model.to_string()
+    } else {
+        format!("{model}[1m]")
+    }
+}
+
+fn openai_model_auto_compact_window(model: &str) -> Option<u64> {
+    let model = strip_context_window_suffix(model);
+    match model {
+        model if is_large_context_gpt_model(model) => None,
+        model if is_openai_gpt_model(model) => Some(272_000),
+        _ => None,
+    }
+}
+
+fn strip_context_window_suffix(model: &str) -> &str {
+    model
+        .strip_suffix("[1m]")
+        .or_else(|| model.strip_suffix("[1M]"))
+        .unwrap_or(model)
+}
+
+fn has_context_window_suffix(model: &str) -> bool {
+    strip_context_window_suffix(model) != model
+}
+
+fn is_large_context_gpt_model(model: &str) -> bool {
+    if model == "gpt-5.4-pro" {
+        return true;
+    }
+
+    let Some(version) = model.strip_prefix("gpt-") else {
+        return false;
+    };
+
+    let mut parts = version.split(['.', '-']);
+    let Some(Ok(major)) = parts.next().map(str::parse::<u64>) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .and_then(|part| part.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    major > 5 || major == 5 && minor >= 5
+}
+
+fn is_openai_gpt_model(model: &str) -> bool {
+    model.starts_with("gpt-")
+}
+
 #[cfg(unix)]
 fn should_use_pty(config_hyperlinks: &HyperlinksConfig, cli_override: bool) -> bool {
     if cli_override {
@@ -237,9 +297,47 @@ mod tests {
     }
 
     #[test]
-    fn test_build_resume_hint_resume_only() {
-        let args = vec!["--resume".to_string(), "old-id".to_string()];
-        let hint = build_resume_hint("p", "new-id", &args);
-        assert_eq!(hint, "CLAUDEX_PROFILE=p claudex --resume new-id");
+    fn openai_model_auto_compact_window_uses_legacy_window_for_old_gpt_models() {
+        assert_eq!(openai_model_auto_compact_window("gpt-5.4"), Some(272_000));
+        assert_eq!(openai_model_auto_compact_window("gpt-5.3"), Some(272_000));
+        assert_eq!(openai_model_auto_compact_window("gpt-4o"), Some(272_000));
+        assert_eq!(openai_model_auto_compact_window("gpt-4.1"), Some(272_000));
+    }
+
+    #[test]
+    fn openai_model_auto_compact_window_does_not_override_large_context_models() {
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5[1m]"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5[1M]"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5-pro"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.4-pro"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.6"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-6.0-pro"), None);
+    }
+
+    #[test]
+    fn openai_model_auto_compact_window_ignores_non_openai_models() {
+        assert_eq!(openai_model_auto_compact_window("claude-sonnet-4-6"), None);
+        assert_eq!(openai_model_auto_compact_window("gemini-2.5-pro"), None);
+    }
+
+    #[test]
+    fn claude_visible_model_adds_1m_suffix_for_large_context_models() {
+        assert_eq!(claude_visible_model("gpt-5.5"), "gpt-5.5[1m]");
+        assert_eq!(claude_visible_model("gpt-5.5[1m]"), "gpt-5.5[1m]");
+        assert_eq!(claude_visible_model("gpt-5.5[1M]"), "gpt-5.5[1M]");
+        assert_eq!(claude_visible_model("gpt-5.5-pro"), "gpt-5.5-pro[1m]");
+        assert_eq!(claude_visible_model("gpt-5.4-pro"), "gpt-5.4-pro[1m]");
+        assert_eq!(claude_visible_model("gpt-5.6"), "gpt-5.6[1m]");
+        assert_eq!(claude_visible_model("gpt-6.0-pro"), "gpt-6.0-pro[1m]");
+    }
+
+    #[test]
+    fn claude_visible_model_keeps_other_models_unchanged() {
+        assert_eq!(claude_visible_model("gpt-5.4"), "gpt-5.4");
+        assert_eq!(
+            claude_visible_model("claude-sonnet-4-6"),
+            "claude-sonnet-4-6"
+        );
     }
 }

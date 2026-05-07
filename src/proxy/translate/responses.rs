@@ -183,6 +183,7 @@ pub fn anthropic_to_responses(
     let model = anthropic
         .get("model")
         .and_then(|m| m.as_str())
+        .map(strip_context_window_suffix)
         .unwrap_or(default_model);
 
     // Build request body
@@ -459,6 +460,13 @@ pub fn responses_to_anthropic(resp: &Value, tool_name_map: &ToolNameMap) -> Resu
         "stop_sequence": null,
         "usage": anthropic_usage,
     }))
+}
+
+fn strip_context_window_suffix(model: &str) -> &str {
+    model
+        .strip_suffix("[1m]")
+        .or_else(|| model.strip_suffix("[1M]"))
+        .unwrap_or(model)
 }
 
 fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
@@ -1141,5 +1149,17 @@ mod tests {
         assert_eq!(result["usage"]["output_tokens"], 20);
         assert_eq!(result["usage"]["cache_read_input_tokens"], 40);
         assert!(result["usage"].get("reasoning_tokens").is_none());
+    }
+
+    #[test]
+    fn test_anthropic_to_responses_strips_1m_model_suffix() {
+        let req = json!({
+            "model": "gpt-5.5[1M]",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 10,
+        });
+
+        let (body, _) = anthropic_to_responses(&req, "gpt-5.5").unwrap();
+        assert_eq!(body["model"], "gpt-5.5");
     }
 }

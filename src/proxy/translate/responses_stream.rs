@@ -890,6 +890,26 @@ mod tests {
         assert!(output.contains("\"output_tokens\":50"));
     }
 
+    #[tokio::test]
+    async fn test_completed_usage_ignores_reasoning_token_breakdown() {
+        let input = futures::stream::iter(vec![Ok(Bytes::from(concat!(
+            "event: response.output_text.delta\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":50,\"total_tokens\":150,\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens_details\":{\"reasoning_tokens\":7}}}}\n\n",
+        )))]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("\"output_tokens\":50"));
+        assert!(!output.contains("reasoning_tokens"));
+        assert!(!output.contains("\"output_tokens\":57"));
+    }
+
     #[test]
     fn test_output_item_done_message_text() {
         let mut state = ResponsesStreamState::new(ToolNameMap::new());

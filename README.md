@@ -97,6 +97,10 @@ intentionally unsupported.
 - ✅ Upstream `429` retry with capped `Retry-After` delay.
 - ✅ Responses stream hardening for failure/rate-limit events.
 - ✅ `/v1/models` exposes Claude model slots without duplicates.
+- ✅ Claude Code sees 1M context windows for `gpt-5.5`, `gpt-5.4-pro`,
+  and newer GPT models via the `[1m]` model suffix, so `/context` reports
+  the correct huge context limit. Older/smaller GPT models keep the legacy
+  auto-compact window for compatibility.
 - ✅ ChatGPT/Codex profiles intentionally map every Claude model slot to
   `gpt-5.5` by default because this account rejects `gpt-5.5-mini`.
 - ✅ Claude Code visible `Web Search` works as a client-side tool.
@@ -308,6 +312,13 @@ haiku slot, but the Codex backend can still reject `gpt-5.5-mini` for ChatGPT
 subscription accounts with `400 model is not supported`.
 If Claude Code selects a haiku/sonnet/opus slot, claudex sends the mapped model
 from `[profiles.models]`. Keep those aliases on models your account can use.
+
+For large-context GPT models, claudex makes Claude Code aware of the real 1M
+window by presenting `gpt-5.5`, `gpt-5.4-pro`, and newer GPT models to Claude
+Code with a `[1m]` suffix, then strips that suffix before forwarding requests to
+Codex/OpenAI. This keeps `/context` accurate while preserving upstream model
+names. Older GPT models such as `gpt-5.4`, `gpt-5.3`, `gpt-4o`, and `gpt-4.1`
+keep the smaller auto-compact window for compatibility.
 
 ## Deploying A Local Build
 
