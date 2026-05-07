@@ -1,259 +1,143 @@
-use std::path::PathBuf;
+use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
 
 use crate::cli::ConfigAction;
 use crate::oauth::AuthType;
 
-use super::{ClaudexConfig, CONFIG_DIR_NAMES, CONFIG_FILE_NAMES, GLOBAL_CONFIG_NAMES};
+use super::ClaudexConfig;
 
-pub async fn dispatch(action: Option<ConfigAction>, config: &mut ClaudexConfig) -> Result<()> {
+pub async fn dispatch(action: ConfigAction, config: &mut ClaudexConfig) -> Result<()> {
     match action {
-        None
-        | Some(ConfigAction::Show {
-            raw: false,
-            json: false,
-        }) => cmd_show(config, false, false),
-        Some(ConfigAction::Show { raw, json }) => cmd_show(config, raw, json),
-        Some(ConfigAction::Path) => cmd_path(config),
-        Some(ConfigAction::Init { yaml }) => {
-            ClaudexConfig::init_local(yaml)?;
-            Ok(())
-        }
-        Some(ConfigAction::Recreate { force }) => cmd_recreate(config, force),
-        Some(ConfigAction::Edit { global }) => cmd_edit(config, global),
-        Some(ConfigAction::Validate { connectivity }) => cmd_validate(config, connectivity).await,
-        Some(ConfigAction::Get { key }) => cmd_get(config, &key),
-        Some(ConfigAction::Set { key, value }) => cmd_set(config, &key, &value),
-        Some(ConfigAction::Export { format, output }) => cmd_export(config, &format, output),
+        ConfigAction::Show => cmd_show(config),
+        ConfigAction::Doctor {
+            json,
+            fix,
+            profile,
+            connectivity,
+        } => cmd_doctor(config, json, fix, &profile, connectivity).await,
     }
 }
 
-fn cmd_show(config: &ClaudexConfig, raw: bool, json: bool) -> Result<()> {
-    if raw {
-        if let Some(ref source) = config.config_source {
-            let content = std::fs::read_to_string(source)
-                .with_context(|| format!("cannot read {}", source.display()))?;
-            print!("{content}");
-        } else {
-            println!("(no config file found)");
-        }
-        return Ok(());
-    }
-    if json {
-        let json =
-            serde_json::to_string_pretty(config).context("failed to serialize config to JSON")?;
-        println!("{json}");
-        return Ok(());
-    }
-
-    let source_display = config
-        .config_source
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(default)".to_string());
-    println!("Config loaded from: {source_display}");
-    println!("Profiles: {}", config.profiles.len());
-    println!("Proxy: {}:{}", config.proxy_host, config.proxy_port);
+fn cmd_show(config: &ClaudexConfig) -> Result<()> {
+    println!("Config:");
     println!(
-        "Router: {}",
-        if config.router.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    println!("Context engine:");
-    println!(
-        "  Compression: {}",
-        if config.context.compression.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    println!(
-        "  Sharing: {}",
-        if config.context.sharing.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    println!(
-        "  RAG: {}",
-        if config.context.rag.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    Ok(())
-}
-
-fn cmd_path(config: &ClaudexConfig) -> Result<()> {
-    let global_dir = ClaudexConfig::config_dir()?;
-    let cwd = std::env::current_dir().unwrap_or_default();
-
-    println!(
-        "Active config: {}",
+        "  active: {}",
         config
             .config_source
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "(none)".to_string())
     );
+    println!("  global: {}", ClaudexConfig::config_path()?.display());
     println!();
-    println!("Search order:");
-    let mut idx = 1;
-
-    // Environment variable
-    if let Ok(env_val) = std::env::var("CLAUDEX_CONFIG") {
-        let exists = std::path::Path::new(&env_val).exists();
-        let marker = if exists { "+" } else { " " };
-        println!("  {marker} {idx}. $CLAUDEX_CONFIG = {env_val}");
-        idx += 1;
-    }
-
-    // Project-level files in CWD
-    for name in CONFIG_FILE_NAMES {
-        let path = cwd.join(name);
-        let marker = if path.exists() { "+" } else { " " };
-        println!("  {marker} {idx}. {}", path.display());
-        idx += 1;
-    }
-    for (dir_name, file_names) in CONFIG_DIR_NAMES {
-        for file_name in *file_names {
-            let path = cwd.join(dir_name).join(file_name);
-            let marker = if path.exists() { "+" } else { " " };
-            println!("  {marker} {idx}. {}", path.display());
-            idx += 1;
-        }
-    }
-
-    // Global config
-    for name in GLOBAL_CONFIG_NAMES {
-        let path = global_dir.join(name);
-        let marker = if path.exists() { "+" } else { " " };
-        println!("  {marker} {idx}. {}", path.display());
-        idx += 1;
-    }
-
+    println!("Runtime defaults:");
+    println!("  claude binary: {}", config.claude_binary);
     println!();
-    println!("(+ = exists)");
-    Ok(())
-}
-
-fn cmd_get(config: &ClaudexConfig, key: &str) -> Result<()> {
-    let json = serde_json::to_value(config).context("failed to serialize config")?;
-    let value = resolve_dot_path(&json, key).with_context(|| format!("key not found: {key}"))?;
-    match value {
-        serde_json::Value::String(s) => println!("{s}"),
-        other => println!("{}", serde_json::to_string_pretty(&other)?),
+    println!("Profiles:");
+    if config.profiles.is_empty() {
+        println!("  (none)");
+        return Ok(());
     }
-    Ok(())
-}
-
-fn resolve_dot_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
-    let mut current = value;
-    for segment in path.split('.') {
-        if let Ok(idx) = segment.parse::<usize>() {
-            current = current.get(idx)?;
-        } else {
-            current = current.get(segment)?;
-        }
-    }
-    Some(current)
-}
-
-fn cmd_set(config: &mut ClaudexConfig, key: &str, value: &str) -> Result<()> {
-    let mut json = serde_json::to_value(&*config).context("failed to serialize config")?;
-
-    let parsed_value: serde_json::Value = serde_json::from_str(value)
-        .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
-
-    set_dot_path(&mut json, key, parsed_value).with_context(|| format!("cannot set key: {key}"))?;
-
-    // Validate by deserializing back
-    let new_config: ClaudexConfig =
-        serde_json::from_value(json).context("invalid config after modification")?;
-
-    // Preserve skip fields
-    let source = config.config_source.clone();
-    let format = config.config_format;
-    *config = new_config;
-    config.config_source = source;
-    config.config_format = format;
-    config.save()?;
-    println!("Set {key} = {value}");
-    Ok(())
-}
-
-fn set_dot_path(root: &mut serde_json::Value, path: &str, value: serde_json::Value) -> Result<()> {
-    let segments: Vec<&str> = path.split('.').collect();
-    let mut current = root;
-    for (i, segment) in segments.iter().enumerate() {
-        if i == segments.len() - 1 {
-            // Last segment: set value
-            if let Ok(idx) = segment.parse::<usize>() {
-                let arr = current.as_array_mut().context("expected array")?;
-                if idx < arr.len() {
-                    arr[idx] = value;
-                } else {
-                    anyhow::bail!("array index {idx} out of bounds (len {})", arr.len());
-                }
+    for profile in &config.profiles {
+        println!(
+            "  {:<16} {:<8} {:<10} {:<18} {}",
+            profile.name,
+            if profile.enabled {
+                "enabled"
             } else {
-                let obj = current.as_object_mut().context("expected object")?;
-                obj.insert(segment.to_string(), value);
-            }
-            return Ok(());
-        }
-        // Navigate deeper
-        if let Ok(idx) = segment.parse::<usize>() {
-            current = current
-                .get_mut(idx)
-                .with_context(|| format!("array index {idx} not found"))?;
-        } else {
-            current = current
-                .get_mut(*segment)
-                .with_context(|| format!("key '{segment}' not found"))?;
-        }
+                "disabled"
+            },
+            format!("{:?}", profile.provider_type),
+            profile.default_model,
+            profile.base_url
+        );
     }
     Ok(())
 }
 
-fn cmd_export(config: &ClaudexConfig, format: &str, output: Option<PathBuf>) -> Result<()> {
-    let content = match format {
-        "json" => serde_json::to_string_pretty(config).context("failed to serialize to JSON")?,
-        "toml" => toml::to_string_pretty(config).context("failed to serialize to TOML")?,
-        "yaml" | "yml" => serde_yml::to_string(config).context("failed to serialize to YAML")?,
-        _ => anyhow::bail!("unsupported format: {format} (use json, toml, yaml)"),
-    };
+#[derive(Debug, serde::Serialize)]
+struct DoctorReport {
+    status: DoctorStatus,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    actions: Vec<String>,
+}
 
-    if let Some(path) = output {
-        std::fs::write(&path, &content)
-            .with_context(|| format!("cannot write to {}", path.display()))?;
-        println!("Exported to {}", path.display());
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DoctorStatus {
+    Ok,
+    NeedsSetup,
+    Error,
+}
+
+async fn cmd_doctor(
+    config: &mut ClaudexConfig,
+    json: bool,
+    fix: bool,
+    profile: &str,
+    connectivity: bool,
+) -> Result<()> {
+    let report = build_doctor_report(config, connectivity).await;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).context("failed to serialize doctor report")?
+        );
     } else {
-        print!("{content}");
+        print_doctor_report(config, &report);
     }
-    Ok(())
+
+    if !json && (fix || std::io::stdin().is_terminal()) {
+        offer_doctor_fix(config, &report, profile).await?;
+    }
+
+    match report.status {
+        DoctorStatus::Ok => Ok(()),
+        DoctorStatus::NeedsSetup => std::process::exit(2),
+        DoctorStatus::Error => std::process::exit(1),
+    }
 }
 
-async fn cmd_validate(config: &ClaudexConfig, connectivity: bool) -> Result<()> {
-    let mut errors: Vec<String> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
+async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> DoctorReport {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut actions = Vec::new();
 
-    // 1. Profile name uniqueness
+    if config.config_source.is_none() {
+        errors.push("config file was not found".to_string());
+        actions
+            .push("run `claudex-config config doctor --fix` to set up ChatGPT/Codex".to_string());
+    }
+
+    if config.profiles.is_empty() {
+        errors.push("no profiles configured".to_string());
+        actions.push(
+            "create a profile with `claudex-config auth login chatgpt --profile codex-sub`"
+                .to_string(),
+        );
+    } else if config.enabled_profiles().is_empty() {
+        errors.push("no enabled profiles configured".to_string());
+        actions.push("enable a profile or create one with `claudex-config auth login chatgpt --profile codex-sub`".to_string());
+    }
+
     let mut seen_names = std::collections::HashSet::new();
+    let checks_oauth_keyring = config
+        .profiles
+        .iter()
+        .any(|p| p.enabled && p.auth_type == AuthType::OAuth);
+    if checks_oauth_keyring {
+        print_keychain_notice(
+            "doctor checks OAuth token health, so your OS may ask to allow keychain access",
+        );
+    }
+
     for p in &config.profiles {
         if !seen_names.insert(&p.name) {
             errors.push(format!("duplicate profile name: '{}'", p.name));
         }
-    }
-
-    // 2. backup_providers reference existing profiles
-    for p in &config.profiles {
         for backup in &p.backup_providers {
             if config.find_profile(backup).is_none() {
                 errors.push(format!(
@@ -262,19 +146,44 @@ async fn cmd_validate(config: &ClaudexConfig, connectivity: bool) -> Result<()> 
                 ));
             }
         }
-    }
-
-    // 3. OAuth profiles must have oauth_provider
-    for p in &config.profiles {
         if p.auth_type == AuthType::OAuth && p.oauth_provider.is_none() {
             errors.push(format!(
                 "profile '{}': auth_type is 'oauth' but oauth_provider is not set",
                 p.name
             ));
         }
+        if !p.base_url.starts_with("http://") && !p.base_url.starts_with("https://") {
+            errors.push(format!(
+                "profile '{}': base_url must start with http:// or https://",
+                p.name
+            ));
+        }
+        if p.enabled
+            && p.auth_type == AuthType::ApiKey
+            && p.api_key.is_empty()
+            && p.api_key_keyring.is_none()
+        {
+            warnings.push(format!(
+                "profile '{}': enabled with auth_type=ApiKey but no api_key or api_key_keyring",
+                p.name
+            ));
+        }
+        if p.enabled && p.auth_type == AuthType::OAuth {
+            match crate::oauth::source::load_keyring(&p.name) {
+                Ok(token) => add_oauth_expiry_warnings(
+                    &p.name,
+                    token.expires_at,
+                    &mut warnings,
+                    &mut actions,
+                ),
+                Err(e) => warnings.push(format!(
+                    "profile '{}': OAuth token is not available or unreadable: {e}",
+                    p.name
+                )),
+            }
+        }
     }
 
-    // 4. Router/context references
     if config.router.enabled
         && !config.router.profile.is_empty()
         && config.find_profile(&config.router.profile).is_none()
@@ -305,211 +214,233 @@ async fn cmd_validate(config: &ClaudexConfig, connectivity: bool) -> Result<()> 
         ));
     }
 
-    // 5. base_url format
-    for p in &config.profiles {
-        if !p.base_url.starts_with("http://") && !p.base_url.starts_with("https://") {
-            errors.push(format!(
-                "profile '{}': base_url must start with http:// or https://",
-                p.name
-            ));
-        }
+    if which::which(&config.claude_binary).is_err() {
+        warnings.push(format!(
+            "Claude Code binary '{}' was not found in PATH",
+            config.claude_binary
+        ));
     }
 
-    // 6. proxy_port
-    if config.proxy_port == 0 {
-        errors.push("proxy_port must not be 0".to_string());
+    match crate::process::daemon::read_pid() {
+        Ok(Some(pid)) => match crate::process::daemon::is_proxy_running() {
+            Ok(true) => actions.push(format!("proxy daemon is running with PID {pid}")),
+            Ok(false) => warnings.push(format!("stale proxy PID file for PID {pid}; run `claudex-config proxy status` to clean it up")),
+            Err(e) => warnings.push(format!("could not check proxy PID {pid}: {e}")),
+        },
+        Ok(None) => {}
+        Err(e) => warnings.push(format!("could not read proxy PID file: {e}")),
     }
 
-    // 7. Enabled ApiKey profiles need api_key or keyring
-    for p in &config.profiles {
-        if p.enabled
-            && p.auth_type == AuthType::ApiKey
-            && p.api_key.is_empty()
-            && p.api_key_keyring.is_none()
-        {
-            warnings.push(format!(
-                "profile '{}': enabled with auth_type=ApiKey but no api_key or api_key_keyring",
-                p.name
-            ));
-        }
-    }
-
-    // Print results
-    if errors.is_empty() && warnings.is_empty() {
-        println!("Config is valid.");
-    }
-    for w in &warnings {
-        println!("WARNING: {w}");
-    }
-    for e in &errors {
-        println!("ERROR: {e}");
-    }
-
-    // 8. Connectivity test
     if connectivity {
-        println!();
-        for p in &config.profiles {
-            if p.enabled {
-                print!("Testing {}... ", p.name);
-                match super::profile::test_connectivity(p).await {
-                    Ok(latency) => println!("OK ({latency}ms)"),
-                    Err(e) => println!("FAIL: {e}"),
-                }
+        for p in config.enabled_profiles() {
+            if let Err(e) = super::profile::test_connectivity(p).await {
+                warnings.push(format!("profile '{}': connectivity failed: {e}", p.name));
             }
         }
     }
 
-    if !errors.is_empty() {
-        anyhow::bail!("{} error(s) found", errors.len());
-    }
-    Ok(())
-}
-
-fn cmd_edit(config: &ClaudexConfig, global: bool) -> Result<()> {
-    let path = if global {
-        ClaudexConfig::config_path()?
+    let status = if config.profiles.is_empty() || config.enabled_profiles().is_empty() {
+        DoctorStatus::NeedsSetup
+    } else if errors.is_empty() {
+        DoctorStatus::Ok
     } else {
-        config
-            .config_source
-            .clone()
-            .unwrap_or_else(|| ClaudexConfig::config_path().unwrap_or_default())
+        DoctorStatus::Error
     };
 
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
+    DoctorReport {
+        status,
+        errors,
+        warnings,
+        actions,
+    }
+}
 
-    println!("Opening {} with {editor}...", path.display());
-    let status = std::process::Command::new(&editor)
-        .arg(&path)
-        .status()
-        .with_context(|| format!("failed to launch editor: {editor}"))?;
+const OAUTH_EXPIRY_WARNING_DAYS: i64 = 7;
 
-    if !status.success() {
-        anyhow::bail!("editor exited with status {status}");
+fn add_oauth_expiry_warnings(
+    profile_name: &str,
+    expires_at: Option<i64>,
+    warnings: &mut Vec<String>,
+    actions: &mut Vec<String>,
+) {
+    let Some(expires_at) = expires_at else {
+        return;
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let remaining_ms = expires_at - now;
+    if remaining_ms <= 0 {
+        warnings.push(format!("profile '{profile_name}': OAuth token is expired"));
+        actions.push(format!(
+            "reauthenticate with `claudex-config auth login chatgpt --profile {profile_name}`"
+        ));
+        return;
+    }
+    let warning_ms = OAUTH_EXPIRY_WARNING_DAYS * 24 * 60 * 60 * 1000;
+    if remaining_ms <= warning_ms {
+        let days = (remaining_ms + 86_399_999) / 86_400_000;
+        warnings.push(format!(
+            "profile '{profile_name}': OAuth token expires in {days} day(s)"
+        ));
+        actions.push(format!(
+            "reauthenticate with `claudex-config auth login chatgpt --profile {profile_name}`"
+        ));
+    }
+}
+
+fn print_keychain_notice(message: &str) {
+    if std::io::stderr().is_terminal() {
+        eprintln!("\x1b[33mNote:\x1b[0m doctor checks OAuth token health, so your OS may \x1b[33mask to allow keychain access\x1b[0m.");
+    } else {
+        eprintln!("Note: {message}.");
+    }
+}
+
+fn print_doctor_report(config: &ClaudexConfig, report: &DoctorReport) {
+    println!("Claudex doctor");
+    println!();
+    println!("Config:");
+    println!(
+        "  path: {}",
+        config
+            .config_source
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "not found".to_string())
+    );
+    println!("  version: {}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("Profiles:");
+    if config.profiles.is_empty() {
+        println!("  none");
+    } else {
+        for profile in &config.profiles {
+            println!(
+                "  {} ({}, {:?}, {})",
+                profile.name,
+                if profile.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                },
+                profile.provider_type,
+                profile.default_model
+            );
+        }
+    }
+    println!();
+    println!("Checks:");
+    if report.errors.is_empty() && report.warnings.is_empty() {
+        println!("  OK: setup looks usable");
+    }
+    for error in &report.errors {
+        println!("  ERROR: {error}");
+    }
+    for warning in &report.warnings {
+        println!("  WARNING: {warning}");
+    }
+    if !report.actions.is_empty() {
+        println!();
+        println!("Info / next actions:");
+        for action in &report.actions {
+            println!("  - {action}");
+        }
+    }
+}
+
+async fn offer_doctor_fix(
+    config: &mut ClaudexConfig,
+    report: &DoctorReport,
+    profile: &str,
+) -> Result<()> {
+    if matches!(report.status, DoctorStatus::NeedsSetup) {
+        if prompt_yes_no("Set up a ChatGPT/Codex OAuth profile now?", false)? {
+            crate::oauth::providers::login(config, "chatgpt", profile, false, false, None).await?;
+        }
+        return Ok(());
+    }
+
+    let needs_reauth = report
+        .actions
+        .iter()
+        .any(|action| action.contains("reauthenticate with"));
+    if needs_reauth && prompt_yes_no("Re-authenticate ChatGPT/Codex now?", false)? {
+        crate::oauth::providers::login(config, "chatgpt", profile, true, false, None).await?;
     }
     Ok(())
 }
 
-fn cmd_recreate(config: &mut ClaudexConfig, force: bool) -> Result<()> {
-    let global_path = ClaudexConfig::config_path()?;
-
-    if !force {
-        print!(
-            "This will backup and recreate {}. Continue? [y/N] ",
-            global_path.display()
-        );
-        std::io::Write::flush(&mut std::io::stdout())?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Aborted.");
-            return Ok(());
-        }
+fn prompt_yes_no(prompt: &str, default: bool) -> Result<bool> {
+    if !std::io::stdin().is_terminal() {
+        return Ok(default);
     }
-
-    // Backup existing config
-    if global_path.exists() {
-        let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S");
-        let backup_path = global_path.with_extension(format!("toml.bak.{timestamp}"));
-        std::fs::copy(&global_path, &backup_path)
-            .with_context(|| format!("failed to backup to {}", backup_path.display()))?;
-        println!("Backed up to: {}", backup_path.display());
+    let suffix = if default { "[Y/n]" } else { "[y/N]" };
+    println!("{prompt} {suffix} ");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let answer = input.trim();
+    if answer.is_empty() {
+        return Ok(default);
     }
-
-    // Preserve profiles and model_aliases from current config
-    let profiles = config.profiles.clone();
-    let aliases = config.model_aliases.clone();
-
-    // Write example template
-    let example = include_str!("../../config.example.toml");
-    if let Some(parent) = global_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&global_path, example)?;
-
-    // Reload, merge back profiles/aliases, save
-    let mut new_config = ClaudexConfig::load_from(&global_path)?;
-    new_config.profiles = profiles;
-    new_config.model_aliases = aliases;
-    new_config.save()?;
-
-    println!("Recreated: {}", global_path.display());
-    println!("Your profiles and model_aliases have been preserved.");
-    Ok(())
+    Ok(matches!(answer, "y" | "Y" | "yes" | "YES" | "Yes"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::config::{ClaudexConfig, ProfileConfig, ProviderType};
 
-    // ── resolve_dot_path ──
-
-    #[test]
-    fn test_resolve_simple_key() {
-        let val = json!({"proxy_port": 8080});
-        assert_eq!(resolve_dot_path(&val, "proxy_port"), Some(&json!(8080)));
+    fn make_profile(name: &str, enabled: bool) -> ProfileConfig {
+        ProfileConfig {
+            name: name.to_string(),
+            provider_type: ProviderType::OpenAIResponses,
+            base_url: "https://example.com".to_string(),
+            api_key: "test-key".to_string(),
+            api_key_keyring: None,
+            default_model: "gpt-5.5".to_string(),
+            backup_providers: Vec::new(),
+            custom_headers: Default::default(),
+            extra_env: Default::default(),
+            priority: 100,
+            enabled,
+            auth_type: AuthType::ApiKey,
+            oauth_provider: None,
+            models: Default::default(),
+            image_model: None,
+            max_tokens: None,
+            strip_params: Default::default(),
+            query_params: Default::default(),
+        }
     }
 
-    #[test]
-    fn test_resolve_nested_key() {
-        let val = json!({"router": {"enabled": true}});
-        assert_eq!(resolve_dot_path(&val, "router.enabled"), Some(&json!(true)));
+    #[tokio::test]
+    async fn doctor_reports_needs_setup_without_profiles() {
+        let config = ClaudexConfig::default();
+        let report = build_doctor_report(&config, false).await;
+        assert!(matches!(report.status, DoctorStatus::NeedsSetup));
+        assert!(report.errors.iter().any(|e| e.contains("no profiles")));
     }
 
-    #[test]
-    fn test_resolve_array_index() {
-        let val = json!({"profiles": [{"name": "a"}, {"name": "b"}]});
-        assert_eq!(resolve_dot_path(&val, "profiles.1.name"), Some(&json!("b")));
+    #[tokio::test]
+    async fn doctor_accepts_enabled_oauth_profile() {
+        let mut config = ClaudexConfig::default();
+        config.config_source = Some(std::path::PathBuf::from("/tmp/config.toml"));
+        config.profiles.push(make_profile("codex-sub", true));
+        let report = build_doctor_report(&config, false).await;
+        assert!(matches!(report.status, DoctorStatus::Ok));
+        assert!(report.errors.is_empty());
     }
 
-    #[test]
-    fn test_resolve_nonexistent_key() {
-        let val = json!({"proxy_port": 8080});
-        assert_eq!(resolve_dot_path(&val, "missing"), None);
-    }
-
-    #[test]
-    fn test_resolve_deeply_nested() {
-        let val = json!({"a": {"b": {"c": {"d": 42}}}});
-        assert_eq!(resolve_dot_path(&val, "a.b.c.d"), Some(&json!(42)));
-    }
-
-    // ── set_dot_path ──
-
-    #[test]
-    fn test_set_simple_key() {
-        let mut val = json!({"proxy_port": 8080});
-        set_dot_path(&mut val, "proxy_port", json!(9090)).unwrap();
-        assert_eq!(val["proxy_port"], json!(9090));
-    }
-
-    #[test]
-    fn test_set_nested_key() {
-        let mut val = json!({"router": {"enabled": false}});
-        set_dot_path(&mut val, "router.enabled", json!(true)).unwrap();
-        assert_eq!(val["router"]["enabled"], json!(true));
-    }
-
-    #[test]
-    fn test_set_creates_new_key() {
-        let mut val = json!({"router": {}});
-        set_dot_path(&mut val, "router.new_field", json!("hello")).unwrap();
-        assert_eq!(val["router"]["new_field"], json!("hello"));
-    }
-
-    #[test]
-    fn test_set_array_index() {
-        let mut val = json!({"items": ["a", "b", "c"]});
-        set_dot_path(&mut val, "items.1", json!("x")).unwrap();
-        assert_eq!(val["items"][1], json!("x"));
-    }
-
-    #[test]
-    fn test_set_array_out_of_bounds() {
-        let mut val = json!({"items": ["a"]});
-        let result = set_dot_path(&mut val, "items.5", json!("x"));
-        assert!(result.is_err());
+    #[tokio::test]
+    async fn doctor_reports_duplicate_profile_names() {
+        let mut config = ClaudexConfig::default();
+        config.config_source = Some(std::path::PathBuf::from("/tmp/config.toml"));
+        config.profiles.push(make_profile("codex-sub", true));
+        config.profiles.push(make_profile("codex-sub", true));
+        let report = build_doctor_report(&config, false).await;
+        assert!(matches!(report.status, DoctorStatus::Error));
+        assert!(report
+            .errors
+            .iter()
+            .any(|e| e.contains("duplicate profile")));
     }
 }

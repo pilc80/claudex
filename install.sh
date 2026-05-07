@@ -93,7 +93,7 @@ Options:
   --repo OWNER/REPO      GitHub repository (default: pilc80/claudex)
   --profile NAME        Setup profile name (default: codex-sub)
   --yes                 Accept installer prompts
-  --no-setup            Skip ChatGPT/Codex setup prompts
+  --no-setup            Skip post-install config doctor and setup prompts
   --no-source-fallback  Do not fall back to cargo install
   --dry-run             Print actions without installing
   -h, --help            Show this help
@@ -511,39 +511,30 @@ maybe_stop_proxy() {
     esac
 }
 
-maybe_setup_chatgpt() {
+maybe_run_config_doctor() {
     if is_yes "$SKIP_SETUP" || is_yes "$DRY_RUN"; then
         return
     fi
     if [ -z "$INSTALLED_CONFIG_BIN" ] || [ ! -x "$INSTALLED_CONFIG_BIN" ]; then
         return
     fi
-    if ! prompt_yes_no "Set up a ChatGPT/Codex OAuth profile now?" n; then
+
+    say ""
+    say "Checking Claudex configuration..."
+    if "$INSTALLED_CONFIG_BIN" config doctor; then
         return
     fi
 
-    if [ -t 0 ]; then
-        printf 'Profile name [%s]: ' "$PROFILE_NAME"
-        read -r chosen || chosen=""
-        if [ -n "$chosen" ]; then
-            PROFILE_NAME="$chosen"
-        fi
+    status=$?
+    if [ "$status" = "2" ]; then
+        say ""
+        "$INSTALLED_CONFIG_BIN" config doctor --fix --profile "$PROFILE_NAME" || true
+        return
     fi
-
-    args=""
-    if prompt_yes_no "Use headless device-code login?" n; then
-        args="$args --headless"
-    fi
-    if prompt_yes_no "Force browser/device login instead of reusing existing credentials?" n; then
-        args="$args --force"
-    fi
-
-    # shellcheck disable=SC2086
-    "$INSTALLED_CONFIG_BIN" auth login chatgpt --profile "$PROFILE_NAME" $args
 
     say ""
-    say "Run Claude Code through this profile with:"
-    say "  CLAUDEX_PROFILE=$PROFILE_NAME claudex"
+    say "Config doctor found issues. Run this after fixing them:"
+    say "  claudex-config config doctor"
 }
 
 main() {
@@ -584,7 +575,7 @@ main() {
     verify_installed_latest
     ensure_path_notice
     maybe_stop_proxy
-    maybe_setup_chatgpt
+    maybe_run_config_doctor
 }
 
 main "$@"

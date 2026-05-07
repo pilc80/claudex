@@ -18,6 +18,7 @@ mod util;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::ffi::OsStr;
+use std::io::IsTerminal;
 use std::net::TcpListener;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
@@ -100,6 +101,7 @@ async fn run_launcher() -> Result<()> {
         .clone();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    maybe_reauth_oauth_before_startup(&mut config, &profile, &args).await?;
     let model = std::env::var("CLAUDEX_MODEL").ok();
     process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false)?;
 
@@ -110,6 +112,105 @@ async fn run_launcher() -> Result<()> {
     }
 
     Ok(())
+}
+
+const OAUTH_STARTUP_WARNING_DAYS: i64 = 7;
+
+async fn maybe_reauth_oauth_before_startup(
+    config: &mut ClaudexConfig,
+    profile: &config::ProfileConfig,
+    args: &[String],
+) -> Result<()> {
+    let Some(expiry) = startup_oauth_expiry(profile, args) else {
+        return Ok(());
+    };
+
+    match expiry {
+        StartupOAuthExpiry::Expired => eprintln!(
+            "Claudex warning: OAuth token for '{}' is expired.",
+            profile.name
+        ),
+        StartupOAuthExpiry::Expiring { days } => eprintln!(
+            "Claudex warning: OAuth token for '{}' expires in {days} day(s).",
+            profile.name
+        ),
+    }
+
+    if prompt_yes_no(
+        "Re-authenticate ChatGPT/Codex before starting Claude?",
+        false,
+    )? {
+        oauth::providers::login(config, "chatgpt", &profile.name, true, false, None).await?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupOAuthExpiry {
+    Expired,
+    Expiring { days: i64 },
+}
+
+fn startup_oauth_expiry(
+    profile: &config::ProfileConfig,
+    args: &[String],
+) -> Option<StartupOAuthExpiry> {
+    if !std::io::stdin().is_terminal()
+        || args.iter().any(|arg| arg == "-p" || arg == "--print")
+        || args.first().is_some_and(|arg| !arg.starts_with('-'))
+        || profile.auth_type != oauth::AuthType::OAuth
+    {
+        return None;
+    }
+    eprintln!(
+        "Claudex will check OAuth token health before starting Claude and may ask for keychain access."
+    );
+    let token = oauth::source::load_keyring(&profile.name).ok()?;
+    let expires_at = token.expires_at?;
+    oauth_expiry_status(expires_at, chrono::Utc::now().timestamp_millis())
+}
+
+fn oauth_expiry_status(expires_at: i64, now_ms: i64) -> Option<StartupOAuthExpiry> {
+    let remaining_ms = expires_at - now_ms;
+    if remaining_ms <= 0 {
+        return Some(StartupOAuthExpiry::Expired);
+    }
+    let warning_ms = OAUTH_STARTUP_WARNING_DAYS * 24 * 60 * 60 * 1000;
+    if remaining_ms <= warning_ms {
+        let days = (remaining_ms + 86_399_999) / 86_400_000;
+        return Some(StartupOAuthExpiry::Expiring { days });
+    }
+    None
+}
+
+fn prompt_yes_no(prompt: &str, default: bool) -> Result<bool> {
+    if !std::io::stdin().is_terminal() {
+        return Ok(default);
+    }
+    let suffix = if default { "[Y/n]" } else { "[y/N]" };
+    eprint!("{prompt} {suffix} ");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let answer = input.trim();
+    if answer.is_empty() {
+        return Ok(default);
+    }
+    Ok(matches!(answer, "y" | "Y" | "yes" | "YES" | "Yes"))
+}
+
+fn print_config_help() {
+    println!("Manage configuration");
+    println!();
+    println!("Usage: claudex-config config [OPTIONS] <COMMAND>");
+    println!();
+    println!("Commands:");
+    println!("  show    Show config paths and loaded config summary");
+    println!("  doctor  Check and repair Claudex setup health");
+    println!("  help    Print this message or the help of the given subcommand(s)");
+    println!();
+    println!("Options:");
+    println!("      --config <PATH>  Override config file path");
+    println!("  -h, --help           Print help");
 }
 
 fn resolve_launcher_profile_name(
@@ -173,6 +274,7 @@ async fn run_config_cli() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", profile_name))?
                 .clone();
 
+            maybe_reauth_oauth_before_startup(&mut config, &profile, &args).await?;
             process::launch::launch_claude(&config, &profile, model.as_deref(), &args, hyperlinks)?;
 
             // Claude 退出后，输出日志文件路径
@@ -213,9 +315,10 @@ async fn run_config_cli() -> Result<()> {
             }
         },
 
-        Some(Commands::Config { action }) => {
-            config::cmd::dispatch(action, &mut config).await?;
-        }
+        Some(Commands::Config(command)) => match command.action {
+            Some(action) => config::cmd::dispatch(action, &mut config).await?,
+            None => print_config_help(),
+        },
 
         Some(Commands::Sets { action }) => match action {
             SetsAction::Add {
@@ -500,6 +603,30 @@ mod tests {
     }
 
     #[test]
+    fn oauth_expiry_status_warns_for_expired_token() {
+        assert_eq!(
+            oauth_expiry_status(1_000, 2_000),
+            Some(StartupOAuthExpiry::Expired)
+        );
+    }
+
+    #[test]
+    fn oauth_expiry_status_warns_within_seven_days() {
+        let now = 1_000_000;
+        let six_days = 6 * 24 * 60 * 60 * 1000;
+        assert_eq!(
+            oauth_expiry_status(now + six_days, now),
+            Some(StartupOAuthExpiry::Expiring { days: 6 })
+        );
+    }
+
+    #[test]
+    fn oauth_expiry_status_ignores_tokens_after_warning_window() {
+        let now = 1_000_000;
+        let eight_days = 8 * 24 * 60 * 60 * 1000;
+        assert_eq!(oauth_expiry_status(now + eight_days, now), None);
+    }
+
     fn proxy_health_requires_current_version_and_body_limit() {
         let current_limit = current_request_body_limit_bytes();
         assert!(is_current_proxy_health(

@@ -331,29 +331,28 @@ function Deploy-Binary {
     return $dest
 }
 
-function Maybe-SetupChatGpt {
+function Maybe-RunConfigDoctor {
     param([string]$Path)
 
     if ($NoSetup -or $DryRun) {
         return
     }
-    if (-not (Ask-YesNo "Set up a ChatGPT/Codex OAuth profile now?")) {
+
+    $configPath = Join-Path (Split-Path -Parent $Path) "claudex-config.exe"
+    Write-Host ""
+    Write-Host "Checking Claudex configuration..."
+    & $configPath config doctor
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+    if ($LASTEXITCODE -eq 2) {
+        & $configPath config doctor --fix --profile $Profile
         return
     }
 
-    $script:Profile = Read-InstallerInput "Profile name" $Profile
-
-    $args = @("auth", "login", "chatgpt", "--profile", $Profile)
-    if (Ask-YesNo "Use headless device-code login?") { $args += "--headless" }
-    if (Ask-YesNo "Force browser/device login instead of reusing existing credentials?") {
-        $args += "--force"
-    }
-
-    $configPath = Join-Path (Split-Path -Parent $Path) "claudex-config.exe"
-    Invoke-Native "claudex-config auth login" $configPath $args
     Write-Host ""
-    Write-Host "Run Claude Code through this profile with:"
-    Write-Host "  `$env:CLAUDEX_PROFILE = `"$Profile`"; claudex"
+    Write-Host "Config doctor found issues. Run this after fixing them:"
+    Write-Host "  claudex-config config doctor"
 }
 
 Write-Host "Claudex Windows Installer"
@@ -395,7 +394,7 @@ try {
     }
 
     $installed = Deploy-Binary $source
-    Maybe-SetupChatGpt $installed
+    Maybe-RunConfigDoctor $installed
 } finally {
     if (Test-InstallerTempSource $source) {
         Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue

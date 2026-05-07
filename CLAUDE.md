@@ -121,6 +121,14 @@ The config file is at `~/.config/claudex/config.toml`. See
   production code.
 - Logging: use `tracing::info!`, `tracing::warn!`, and `tracing::error!`.
 - Formatting: run `cargo fmt`.
+- Before committing, pushing, or releasing changes that touch config, install,
+  auth, proxy startup, profile selection, or version/health checks:
+  1. Review whether `claudex-config config doctor` still covers the changed path.
+  2. Update doctor checks and tests if the change can affect setup readiness.
+  3. Run doctor-related tests plus `claudex-config config doctor` against the
+     installed binary.
+  4. Do not commit/release if doctor gives stale, incomplete, or misleading
+     guidance.
 
 ## Deployment Rules
 

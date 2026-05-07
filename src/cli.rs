@@ -1,12 +1,17 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{builder::styling, Args, Parser, Subcommand};
+
+fn plain_help_styles() -> styling::Styles {
+    styling::Styles::plain()
+}
 
 #[derive(Parser)]
 #[command(
     name = "claudex-config",
     version,
-    about = "Configure and manage the Claudex Claude Code translation proxy"
+    about = "Configure and manage the Claudex Claude Code translation proxy",
+    styles = plain_help_styles()
 )]
 pub struct Cli {
     /// Override config file path
@@ -46,10 +51,7 @@ pub enum Commands {
     },
 
     /// Manage configuration
-    Config {
-        #[command(subcommand)]
-        action: Option<ConfigAction>,
-    },
+    Config(ConfigCommand),
 
     /// Manage OAuth authentication for subscription services
     Auth {
@@ -169,63 +171,30 @@ pub enum SetsAction {
     },
 }
 
+#[derive(Args)]
+pub struct ConfigCommand {
+    #[command(subcommand)]
+    pub action: Option<ConfigAction>,
+}
+
 #[derive(Subcommand)]
 pub enum ConfigAction {
-    /// Display configuration summary (default when no subcommand)
-    Show {
-        /// Print raw file contents
-        #[arg(long)]
-        raw: bool,
-        /// Output merged config as JSON
+    /// Show config paths and loaded config summary
+    Show,
+    /// Check and repair Claudex setup health
+    Doctor {
+        /// Output machine-readable diagnostics
         #[arg(long)]
         json: bool,
-    },
-    /// Show config file paths and search order
-    Path,
-    /// Create config file in current directory
-    Init {
-        /// Use YAML format
+        /// Offer interactive fixes for detected setup problems
         #[arg(long)]
-        yaml: bool,
-    },
-    /// Recreate global config (backup original, preserve profiles)
-    Recreate {
-        /// Skip confirmation prompt
-        #[arg(long)]
-        force: bool,
-    },
-    /// Open config file in $EDITOR
-    Edit {
-        /// Open global config
-        #[arg(long)]
-        global: bool,
-    },
-    /// Validate config syntax and semantics
-    Validate {
-        /// Also test provider connectivity
+        fix: bool,
+        /// Profile name to create or repair
+        #[arg(long, default_value = "codex-sub")]
+        profile: String,
+        /// Also test enabled provider connectivity
         #[arg(long)]
         connectivity: bool,
-    },
-    /// Get a config value by dot-path (e.g. proxy_port, profiles.0.name)
-    Get {
-        /// Dot-separated key path
-        key: String,
-    },
-    /// Set a config value by dot-path
-    Set {
-        /// Dot-separated key path
-        key: String,
-        /// Value to set (JSON or plain string)
-        value: String,
-    },
-    /// Export config to another format
-    Export {
-        /// Output format: json, toml, yaml
-        #[arg(long, default_value = "json")]
-        format: String,
-        /// Output file (stdout if omitted)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
     },
 }
 
