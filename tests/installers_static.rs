@@ -16,6 +16,18 @@ fn windows_installer_uses_safe_web_wrappers() {
 }
 
 #[test]
+fn unix_installer_supports_optional_macos_codesigning() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("CLAUDEX_CODESIGN_IDENTITY"));
+    assert!(script.contains("pilc80 local signing"));
+    assert!(script.contains("sign_macos_binary()"));
+    assert!(script.contains("codesign --force --sign \"$CLAUDEX_CODESIGN_IDENTITY\""));
+    assert!(script.contains("codesign --verify \"$binary\""));
+    assert!(script.contains("sign_macos_binary \"$staging_binary\""));
+}
+
+#[test]
 fn unix_installer_downloads_with_progress_timeout_and_retries() {
     let script = fs::read_to_string("install.sh").expect("install.sh should exist");
 

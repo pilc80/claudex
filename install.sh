@@ -14,6 +14,7 @@ ASSUME_YES="${CLAUDEX_ASSUME_YES:-}"
 SKIP_SETUP="${CLAUDEX_SKIP_SETUP:-}"
 DRY_RUN="${CLAUDEX_DRY_RUN:-}"
 ALLOW_SOURCE_FALLBACK="${CLAUDEX_SOURCE_FALLBACK:-1}"
+CLAUDEX_CODESIGN_IDENTITY="${CLAUDEX_CODESIGN_IDENTITY:-}"
 
 say() {
     printf '%s\n' "$*"
@@ -92,6 +93,7 @@ Options:
   --install-dir DIR      Install directory (default: ~/.local/bin)
   --repo OWNER/REPO      GitHub repository (default: pilc80/claudex)
   --profile NAME        Setup profile name (default: codex-sub)
+  --codesign-identity NAME  macOS codesign identity (env: CLAUDEX_CODESIGN_IDENTITY)
   --yes                 Accept installer prompts
   --no-setup            Skip post-install config doctor and setup prompts
   --no-source-fallback  Do not fall back to cargo install
@@ -117,6 +119,11 @@ parse_args() {
             --profile)
                 [ "$#" -ge 2 ] || { err "--profile requires a value"; exit 2; }
                 PROFILE_NAME="$2"
+                shift 2
+                ;;
+            --codesign-identity)
+                [ "$#" -ge 2 ] || { err "--codesign-identity requires a value"; exit 2; }
+                CLAUDEX_CODESIGN_IDENTITY="$2"
                 shift 2
                 ;;
             --yes)
@@ -325,6 +332,26 @@ backup_existing() {
     fi
 }
 
+sign_macos_binary() {
+    binary="$1"
+
+    if [ "$(uname -s)" != "Darwin" ]; then
+        return 0
+    fi
+    if [ -z "$CLAUDEX_CODESIGN_IDENTITY" ]; then
+        say "macOS codesign skipped; set CLAUDEX_CODESIGN_IDENTITY=\"pilc80 local signing\" to keep Keychain trust across local rebuilds."
+        return 0
+    fi
+    if ! has_cmd codesign; then
+        err "codesign is required when CLAUDEX_CODESIGN_IDENTITY is set"
+        return 1
+    fi
+
+    say "Signing $(basename "$binary") with identity: $CLAUDEX_CODESIGN_IDENTITY"
+    codesign --force --sign "$CLAUDEX_CODESIGN_IDENTITY" "$binary"
+    codesign --verify "$binary"
+}
+
 install_binary() {
     src="$1"
     binary_dest="$INSTALL_DIR/claudex"
@@ -346,6 +373,7 @@ install_binary() {
 
     "$staging_binary" --version >/dev/null
     "$staging_config" --version >/dev/null
+    sign_macos_binary "$staging_binary"
 
     backup_existing "$binary_dest"
     backup_existing "$config_dest"

@@ -320,6 +320,42 @@ claudex
 Changing the symlink does not update already-running processes. If an old proxy
 is alive, `claudex` may reuse it instead of starting the new binary.
 
+## macOS Local Signing
+
+Local macOS rebuilds produce a new binary identity. If `claudex` reads OAuth
+credentials from Keychain, macOS may ask for Keychain access again after each
+unsigned rebuild. For local development, create one persistent self-signed code
+signing certificate named `pilc80 local signing`, then sign every local build
+with that identity.
+
+Create the local certificate in Keychain Access:
+
+1. Open Keychain Access.
+2. Choose Certificate Assistant -> Create a Certificate.
+3. Name: `pilc80 local signing`.
+4. Certificate Type: Code Signing.
+5. Check "Let me override defaults" and create it in the login keychain.
+6. Set the certificate trust to "Always Trust" if macOS asks.
+
+Sign a local build:
+
+```bash
+cargo build --release
+codesign --force --sign "pilc80 local signing" target/release/claudex
+codesign --force --sign "pilc80 local signing" target/release/claudex-config
+codesign --verify target/release/claudex target/release/claudex-config
+```
+
+The Unix installer also supports signing installed macOS release binaries:
+
+```bash
+CLAUDEX_CODESIGN_IDENTITY="pilc80 local signing" sh install.sh --yes
+```
+
+This is for local Keychain trust only. Public release artifacts still require an
+Apple Developer ID certificate and notarization if distributed as trusted macOS
+software.
+
 ## Release Integrity
 
 Each release should publish:
