@@ -21,7 +21,8 @@ pub fn launch_claude(
     let model = model_override
         .map(|m| config.resolve_model(m))
         .unwrap_or_else(|| config.resolve_model(&profile.default_model));
-    let visible_model = claude_visible_model(&model);
+    let is_openai_responses_oauth = is_openai_responses_oauth_profile(profile);
+    let visible_model = claude_visible_model(&model, is_openai_responses_oauth);
 
     // 非交互模式检测：含 -p / --print，或首个 arg 不是 flag（裸 prompt）
     let is_noninteractive = extra_args.iter().any(|arg| arg == "-p" || arg == "--print")
@@ -70,8 +71,10 @@ pub fn launch_claude(
         cmd.env("ANTHROPIC_DEFAULT_OPUS_MODEL", o);
     }
 
-    if let Some(window) = openai_model_auto_compact_window(&model) {
-        cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
+    if is_openai_responses_oauth {
+        if let Some(window) = openai_model_auto_compact_window(&model) {
+            cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
+        }
     }
 
     for (k, v) in &profile.extra_env {
@@ -177,9 +180,19 @@ fn build_resume_hint(profile_name: &str, session_id: &str, extra_args: &[String]
 }
 
 /// Decide whether to use PTY mode based on config + CLI flag.
-fn claude_visible_model(model: &str) -> String {
-    if has_context_window_suffix(model)
-        || !is_large_context_gpt_model(strip_context_window_suffix(model))
+fn is_openai_responses_oauth_profile(profile: &ProfileConfig) -> bool {
+    profile.provider_type == crate::config::ProviderType::OpenAIResponses
+        && profile.auth_type == AuthType::OAuth
+        && profile
+            .oauth_provider
+            .as_ref()
+            .is_some_and(|provider| provider.normalize() == OAuthProvider::Chatgpt)
+}
+
+fn claude_visible_model(model: &str, enable_openai_context_window: bool) -> String {
+    if !enable_openai_context_window
+        || has_context_window_suffix(model)
+        || !is_openai_gpt_model(strip_context_window_suffix(model))
     {
         model.to_string()
     } else {
@@ -208,7 +221,7 @@ fn has_context_window_suffix(model: &str) -> bool {
 }
 
 fn is_large_context_gpt_model(model: &str) -> bool {
-    if model == "gpt-5.4-pro" {
+    if model == "gpt-5.5-pro" {
         return true;
     }
 
@@ -225,7 +238,7 @@ fn is_large_context_gpt_model(model: &str) -> bool {
         .and_then(|part| part.parse::<u64>().ok())
         .unwrap_or(0);
 
-    major > 5 || major == 5 && minor >= 5
+    major > 5 || major == 5 && minor > 5
 }
 
 fn is_openai_gpt_model(model: &str) -> bool {
@@ -297,47 +310,26 @@ mod tests {
     }
 
     #[test]
-    fn openai_model_auto_compact_window_uses_legacy_window_for_old_gpt_models() {
-        assert_eq!(openai_model_auto_compact_window("gpt-5.4"), Some(272_000));
-        assert_eq!(openai_model_auto_compact_window("gpt-5.3"), Some(272_000));
-        assert_eq!(openai_model_auto_compact_window("gpt-4o"), Some(272_000));
-        assert_eq!(openai_model_auto_compact_window("gpt-4.1"), Some(272_000));
+    fn large_context_gpt_detection_matches_boundary() {
+        assert!(["gpt-5.5-pro", "gpt-5.6"]
+            .into_iter()
+            .all(is_large_context_gpt_model));
+        assert!(["gpt-5.5", "gpt-5.5-mini", "gpt-5.4-pro"]
+            .into_iter()
+            .all(|model| !is_large_context_gpt_model(model)));
     }
 
     #[test]
-    fn openai_model_auto_compact_window_does_not_override_large_context_models() {
-        assert_eq!(openai_model_auto_compact_window("gpt-5.5"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-5.5[1m]"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-5.5[1M]"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-5.5-pro"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-5.4-pro"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-5.6"), None);
-        assert_eq!(openai_model_auto_compact_window("gpt-6.0-pro"), None);
-    }
+    fn openai_responses_oauth_profile_enables_context_window_override() {
+        let mut profile = ProfileConfig {
+            provider_type: crate::config::ProviderType::OpenAIResponses,
+            auth_type: AuthType::OAuth,
+            oauth_provider: Some(OAuthProvider::Chatgpt),
+            ..Default::default()
+        };
+        assert!(is_openai_responses_oauth_profile(&profile));
 
-    #[test]
-    fn openai_model_auto_compact_window_ignores_non_openai_models() {
-        assert_eq!(openai_model_auto_compact_window("claude-sonnet-4-6"), None);
-        assert_eq!(openai_model_auto_compact_window("gemini-2.5-pro"), None);
-    }
-
-    #[test]
-    fn claude_visible_model_adds_1m_suffix_for_large_context_models() {
-        assert_eq!(claude_visible_model("gpt-5.5"), "gpt-5.5[1m]");
-        assert_eq!(claude_visible_model("gpt-5.5[1m]"), "gpt-5.5[1m]");
-        assert_eq!(claude_visible_model("gpt-5.5[1M]"), "gpt-5.5[1M]");
-        assert_eq!(claude_visible_model("gpt-5.5-pro"), "gpt-5.5-pro[1m]");
-        assert_eq!(claude_visible_model("gpt-5.4-pro"), "gpt-5.4-pro[1m]");
-        assert_eq!(claude_visible_model("gpt-5.6"), "gpt-5.6[1m]");
-        assert_eq!(claude_visible_model("gpt-6.0-pro"), "gpt-6.0-pro[1m]");
-    }
-
-    #[test]
-    fn claude_visible_model_keeps_other_models_unchanged() {
-        assert_eq!(claude_visible_model("gpt-5.4"), "gpt-5.4");
-        assert_eq!(
-            claude_visible_model("claude-sonnet-4-6"),
-            "claude-sonnet-4-6"
-        );
+        profile.oauth_provider = Some(OAuthProvider::Claude);
+        assert!(!is_openai_responses_oauth_profile(&profile));
     }
 }

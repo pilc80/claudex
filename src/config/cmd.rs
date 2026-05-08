@@ -422,8 +422,10 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_accepts_enabled_oauth_profile() {
-        let mut config = ClaudexConfig::default();
-        config.config_source = Some(std::path::PathBuf::from("/tmp/config.toml"));
+        let mut config = ClaudexConfig {
+            config_source: Some(std::path::PathBuf::from("/tmp/config.toml")),
+            ..Default::default()
+        };
         config.profiles.push(make_profile("codex-sub", true));
         let report = build_doctor_report(&config, false).await;
         assert!(matches!(report.status, DoctorStatus::Ok));
@@ -432,8 +434,10 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_reports_duplicate_profile_names() {
-        let mut config = ClaudexConfig::default();
-        config.config_source = Some(std::path::PathBuf::from("/tmp/config.toml"));
+        let mut config = ClaudexConfig {
+            config_source: Some(std::path::PathBuf::from("/tmp/config.toml")),
+            ..Default::default()
+        };
         config.profiles.push(make_profile("codex-sub", true));
         config.profiles.push(make_profile("codex-sub", true));
         let report = build_doctor_report(&config, false).await;

@@ -19,7 +19,7 @@ claudex
 - 🏆 **ChatGPT/Codex subscriptions** — use Claude Code through ChatGPT/Codex OAuth with no OpenAI API key.
 - 🏆 **Claude Code workflows** — keep tools, agents, long sessions, and parallel work across supported backends.
 - 🏆 **Text, image, and file support** — translate conversations, vision inputs, file/document blocks, tool calls, and streaming responses.
-- 🏆 **1M context support** — make `/context` aware of large GPT context windows such as `gpt-5.5` and `gpt-5.4-pro`.
+- 🏆 **1M context support** — make `/context` aware of verified 1M GPT context windows such as `gpt-5.5-pro` and newer GPT models.
 - 🏆 **Compaction support** — preserve `/compact`, auto-compaction, and context-limit recovery behavior.
 - 🏆 **Correct error translation** — surface OpenAI/Codex failures as actionable Claude Code errors.
 - 🏆 **Setup health checks** — use `claudex-config config doctor` to check config, auth, proxy state, setup, and reauthentication.
@@ -283,12 +283,12 @@ subscription accounts with `400 model is not supported`.
 If Claude Code selects a haiku/sonnet/opus slot, claudex sends the mapped model
 from `[profiles.models]`. Keep those aliases on models your account can use.
 
-For large-context GPT models, claudex makes Claude Code aware of the real 1M
-window by presenting `gpt-5.5`, `gpt-5.4-pro`, and newer GPT models to Claude
-Code with a `[1m]` suffix, then strips that suffix before forwarding requests to
-Codex/OpenAI. This keeps `/context` accurate while preserving upstream model
-names. Older GPT models such as `gpt-5.4`, `gpt-5.3`, `gpt-4o`, and `gpt-4.1`
-keep the smaller auto-compact window for compatibility.
+For verified large-context GPT models, claudex makes Claude Code aware of the
+real 1M window by presenting `gpt-5.5-pro` and newer GPT models to Claude Code
+with a `[1m]` suffix, then strips that suffix before forwarding requests to
+Codex/OpenAI. Plain `gpt-5.5` and older GPT models default to the smaller
+272k auto-compact window because the runtime can still reject prompts around
+that size despite some docs listing a 1M context window.
 
 ## Deploying A Local Build
 

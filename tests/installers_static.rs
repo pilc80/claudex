@@ -48,7 +48,7 @@ fn unix_installer_avoids_global_dest_variable_collision() {
 
     assert!(script.contains("backup_path=\"$1\""));
     assert!(script.contains("binary_dest=\"$INSTALL_DIR/claudex\""));
-    assert!(script.contains("mv \"$src\" \"$binary_dest\""));
+    assert!(script.contains("mv \"$staging_binary\" \"$binary_dest\""));
     assert!(!script.contains("dest=\"$1\""));
 }
 
@@ -79,10 +79,12 @@ fn installers_use_claudex_config_for_management() {
         fs::read_to_string(".github/workflows/release.yml").expect("release workflow should exist");
 
     assert!(unix_installer.contains("claudex-config"));
-    assert!(unix_installer.contains("\"$INSTALLED_CONFIG_BIN\" auth login chatgpt"));
+    assert!(unix_installer.contains("\"$INSTALLED_CONFIG_BIN\" config doctor"));
+    assert!(unix_installer.contains("config doctor --fix --profile \"$PROFILE_NAME\""));
     assert!(unix_installer.contains("\"$INSTALLED_CONFIG_BIN\" proxy status"));
     assert!(windows_installer.contains("claudex-config.exe"));
-    assert!(windows_installer.contains("@(\"auth\", \"login\", \"chatgpt\""));
+    assert!(windows_installer.contains("config doctor"));
+    assert!(windows_installer.contains("config doctor --fix --profile $Profile"));
     assert!(windows_installer.contains("@(\"proxy\", \"status\")"));
     assert!(release_workflow.contains("claudex-config"));
 }
@@ -122,8 +124,8 @@ fn windows_installer_stops_running_proxy_before_overwrite() {
         .find("Maybe-StopRunningProxy $dest")
         .expect("installer should check running proxy before deploy");
     let copy_pos = script
-        .find("Copy-Item -LiteralPath $source -Destination $dest -Force")
-        .expect("installer should copy extracted binary into place");
+        .find("Copy-Item -LiteralPath $source -Destination $stagingDest -Force")
+        .expect("installer should copy extracted binary into staging before deploy");
 
     assert!(
         stop_pos < copy_pos,
@@ -150,7 +152,7 @@ fn windows_installer_validates_repo_and_avoids_noninteractive_prompts() {
     assert!(script.contains("function Read-InstallerInput"));
     assert!(script.contains("[Console]::IsInputRedirected"));
     assert!(script.contains("if (-not (Test-Interactive)) { return $Default }"));
-    assert!(script.contains("Read-InstallerInput \"Profile name\" $Profile"));
+    assert!(script.contains("config doctor --fix --profile $Profile"));
 }
 
 #[test]

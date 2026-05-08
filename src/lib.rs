@@ -158,11 +158,15 @@ fn startup_oauth_expiry(
         || args.iter().any(|arg| arg == "-p" || arg == "--print")
         || args.first().is_some_and(|arg| !arg.starts_with('-'))
         || profile.auth_type != oauth::AuthType::OAuth
+        || !profile
+            .oauth_provider
+            .as_ref()
+            .is_some_and(|provider| provider.normalize() == oauth::OAuthProvider::Chatgpt)
     {
         return None;
     }
     eprintln!(
-        "Claudex will check OAuth token health before starting Claude and may ask for keychain access."
+        "Claudex will check OAuth token health before starting Claude and may ask for \x1b[33mkeychain access\x1b[0m."
     );
     let token = oauth::source::load_keyring(&profile.name).ok()?;
     let expires_at = token.expires_at?;
