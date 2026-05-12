@@ -7,6 +7,8 @@ use std::pin::Pin;
 use crate::proxy::error_translation::{self, AnthropicError};
 use crate::proxy::util::{format_sse, ToolNameMap};
 
+const UPSTREAM_STREAM_READ_TIMEOUT_SECS: u64 = 300;
+
 /// Translates an OpenAI Responses API SSE stream to Anthropic SSE format.
 ///
 /// Responses API events: response.created, response.output_text.delta, etc.
@@ -61,7 +63,7 @@ where
                             "index": state.block_index,
                         }))));
                     }
-                    yield Ok(Bytes::from(format_error_event(&stream_read_error_message(&e))));
+                    yield Ok(Bytes::from(format_error_event(&stream_read_error_message(&e, &state))));
                     return;
                 }
             }
@@ -150,12 +152,37 @@ fn format_error_event(message: &str) -> String {
     .sse()
 }
 
-fn stream_read_error_message(error: &reqwest::Error) -> String {
+fn stream_read_error_message(error: &reqwest::Error, state: &ResponsesStreamState) -> String {
+    if error.is_timeout() {
+        let progress = stream_progress_message(state);
+        return format!(
+            "upstream stream read error: claudex upstream stream read timed out after {UPSTREAM_STREAM_READ_TIMEOUT_SECS}s without receiving data; {progress}. This is usually an upstream stream that stopped producing data long enough to hit claudex's idle read timeout, not an auth, rate-limit, or upstream HTTP status failure"
+        );
+    }
+
     let root = source_chain(error)
         .into_iter()
         .last()
         .unwrap_or_else(|| error.to_string());
+
+    if state.saw_upstream_data {
+        return format!(
+            "upstream stream read error: upstream connection closed before the stream completed; {}; root cause: {root}. This is usually a mid-stream transport interruption after a successful upstream response, not an auth, rate-limit, or upstream HTTP status failure",
+            stream_progress_message(state)
+        );
+    }
+
     format!("upstream stream read error: {root}")
+}
+
+fn stream_progress_message(state: &ResponsesStreamState) -> &'static str {
+    if state.saw_text_delta {
+        "upstream returned 200 OK and was still streaming text"
+    } else if state.saw_upstream_data {
+        "upstream returned 200 OK and started streaming"
+    } else {
+        "upstream returned 200 OK but no translatable stream content was received"
+    }
 }
 
 fn source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
@@ -1106,6 +1133,85 @@ mod tests {
         assert!(output.contains("event: error"));
         assert!(output.contains("upstream stream read error:"));
         assert!(output.contains("Connection refused") || output.contains("tcp connect error"));
+    }
+
+    #[tokio::test]
+    async fn test_stream_timeout_error_explains_claudex_upstream_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _accepted = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        });
+
+        let error = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(10))
+            .build()
+            .unwrap()
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.is_timeout());
+        server.abort();
+
+        let input = futures::stream::iter(vec![
+            Ok(Bytes::from(
+                "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+            )),
+            Err(error),
+        ]);
+        let mut stream = translate_responses_stream(input, ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+
+        assert!(output.contains("event: error"));
+        assert!(output.contains("claudex upstream stream read timed out after 300s"));
+        assert!(output.contains("upstream returned 200 OK and was still streaming text"));
+        assert!(output.contains("idle read timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_stream_unexpected_eof_after_text_explains_midstream_disconnect() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let sse = "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:X}\r\n{sse}\r\nA",
+                sse.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap();
+        let mut stream = translate_responses_stream(response.bytes_stream(), ToolNameMap::new());
+
+        let mut output = String::new();
+        while let Some(chunk) = stream.next().await {
+            output.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+        server.await.unwrap();
+
+        assert!(output.contains("event: error"));
+        assert!(output.contains("upstream connection closed before the stream completed"));
+        assert!(output.contains("upstream returned 200 OK and was still streaming text"));
+        assert!(output.contains("root cause:"));
+        assert!(
+            output.contains("Connection reset by peer") || output.to_lowercase().contains("eof"),
+            "{output}"
+        );
+        assert!(output.contains("not an auth, rate-limit, or upstream HTTP status failure"));
     }
 
     #[tokio::test]

@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::config::{ProfileConfig, ProviderType};
 use crate::oauth::AuthType;
@@ -18,6 +19,32 @@ use crate::proxy::ProxyState;
 use crate::router::classifier;
 
 const IMAGE_HISTORY_PLACEHOLDER_PREFIX: &str = "[Previous image omitted by claudex";
+const COMPACT_PROMPT_SNIPPET_RADIUS_BYTES: usize = 700;
+const COMPACT_PROMPT_MAX_SNIPPETS: usize = 24;
+const COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES: usize = 64 * 1024;
+const COMPACT_COMMAND_PATTERNS: &[&str] = &[
+    "<command-name>/compact</command-name>",
+    "<command-message>compact</command-message>",
+];
+const COMPACT_DIRECTIVE_PATTERNS: &[&str] = &[
+    "create a detailed summary",
+    "detailed summary",
+    "respond with text only",
+    "do not call any tools",
+    "pending tasks",
+    "current work",
+    "previous conversation",
+    "ran out of context",
+    "summary below covers",
+    "compact",
+];
+const COMPACT_ADDITIONAL_INSTRUCTION: &str = "\
+Additional claudex compaction instruction:
+For this compaction response, produce a concise continuation handoff, not a full historical narrative.
+Prefer current actionable state over exhaustive chronology.
+Target 800-1500 words unless essential details require more.
+Include: current goal, decisions made, relevant files, commands/tests run, blockers, and exact next step.
+Avoid repeating old summaries, long transcripts, or narrative background.";
 
 #[derive(Debug)]
 struct TranslatedProxyError {
@@ -445,6 +472,8 @@ async fn try_forward(
     apply_metadata_from_headers(&mut body_for_translation, headers, profile);
     let mut translated = adapter.translate_request(&body_for_translation, profile)?;
     adapter.filter_translated_body(&mut translated.body, profile);
+    let compact_request =
+        apply_compact_prompt_overrides(&body_for_translation, &mut translated.body);
     let translated_model = translated
         .body
         .get("model")
@@ -459,6 +488,12 @@ async fn try_forward(
         current_image_route,
         "translated upstream request model"
     );
+    if compact_request {
+        tracing::info!(
+            profile = %profile.name,
+            "applied compact prompt continuation-handoff instruction"
+        );
+    }
     let upstream_is_streaming = translated
         .body
         .get("stream")
@@ -493,6 +528,10 @@ async fn try_forward(
         model = %translated.body.get("model").and_then(|v| v.as_str()).unwrap_or("-"),
         "forwarding request"
     );
+
+    if compact_request {
+        dump_compact_prompt_audit(&profile.name, &url, &body_for_translation, &translated.body);
+    }
 
     let mut attempts = 0;
     let resp = loop {
@@ -1057,6 +1096,344 @@ fn stream_chunk_has_error_event(bytes: &[u8]) -> bool {
         .is_ok_and(|chunk| chunk.contains("event: error") || chunk.contains("\"type\":\"error\""))
 }
 
+fn is_compact_prompt_audit_request(original: &Value, translated: &Value) -> bool {
+    value_contains_any_text(original, COMPACT_COMMAND_PATTERNS)
+        || value_contains_compact_summary_directive(original)
+        || value_contains_compact_summary_directive(translated)
+}
+
+fn apply_compact_prompt_overrides(original: &Value, translated: &mut Value) -> bool {
+    if !is_compact_prompt_audit_request(original, translated) {
+        return false;
+    }
+
+    translated["instructions"] = match translated.get("instructions").and_then(|v| v.as_str()) {
+        Some(existing) if !existing.contains(COMPACT_ADDITIONAL_INSTRUCTION) => {
+            json!(format!("{existing}\n\n{COMPACT_ADDITIONAL_INSTRUCTION}"))
+        }
+        Some(existing) => json!(existing),
+        None => json!(COMPACT_ADDITIONAL_INSTRUCTION),
+    };
+    if let Some(map) = translated.as_object_mut() {
+        map.remove("reasoning");
+    }
+    true
+}
+
+fn value_contains_compact_summary_directive(value: &Value) -> bool {
+    let has_summary_task = value_contains_any_text(
+        value,
+        &[
+            "create a detailed summary",
+            "respond with text only",
+            "do not call any tools",
+        ],
+    );
+    let has_summary_structure = value_contains_any_text(
+        value,
+        &[
+            "pending tasks",
+            "current work",
+            "previous conversation",
+            "ran out of context",
+        ],
+    );
+    has_summary_task && has_summary_structure
+}
+
+fn value_contains_any_text(value: &Value, patterns: &[&str]) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| value_contains_text(value, pattern))
+}
+
+fn value_contains_text(value: &Value, pattern: &str) -> bool {
+    let needle = pattern.to_ascii_lowercase();
+    match value {
+        Value::String(text) => text.to_ascii_lowercase().contains(&needle),
+        Value::Array(items) => items.iter().any(|item| value_contains_text(item, pattern)),
+        Value::Object(map) => map.values().any(|item| value_contains_text(item, pattern)),
+        _ => false,
+    }
+}
+
+fn dump_compact_prompt_audit(profile: &str, url: &str, original: &Value, translated: &Value) {
+    let Some(audit) = build_compact_prompt_audit(profile, url, original, translated) else {
+        return;
+    };
+    let Some(dir) = dirs::cache_dir().map(|d| d.join("claudex").join("request-dumps")) else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %err, "failed to create compact prompt audit directory");
+        return;
+    }
+
+    let safe_profile = safe_dump_component(profile);
+    let path = dir.join(format!(
+        "{}-{}-{}-compact_prompt_audit.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S%.3f"),
+        std::process::id(),
+        safe_profile
+    ));
+
+    match serde_json::to_vec_pretty(&audit) {
+        Ok(bytes) => match write_private_dump_file(&path, &bytes) {
+            Ok(()) => tracing::info!(
+                path = %path.display(),
+                profile,
+                "compact prompt audit written"
+            ),
+            Err(err) => tracing::warn!(
+                error = %err,
+                path = %path.display(),
+                "failed to write compact prompt audit"
+            ),
+        },
+        Err(err) => tracing::warn!(error = %err, "failed to serialize compact prompt audit"),
+    }
+}
+
+fn build_compact_prompt_audit(
+    profile: &str,
+    url: &str,
+    original: &Value,
+    translated: &Value,
+) -> Option<Value> {
+    if !is_compact_prompt_audit_request(original, translated) {
+        return None;
+    }
+
+    let mut snippets = Vec::new();
+    collect_directive_snippets("original", original, &mut snippets);
+    collect_directive_snippets("translated", translated, &mut snippets);
+    snippets.truncate(COMPACT_PROMPT_MAX_SNIPPETS);
+
+    Some(json!({
+        "kind": "compact_prompt_audit",
+        "profile": profile,
+        "url": url,
+        "model": translated.get("model").and_then(|v| v.as_str()),
+        "stream": translated.get("stream").and_then(|v| v.as_bool()),
+        "store": translated.get("store").and_then(|v| v.as_bool()),
+        "original_request": request_summary(original),
+        "translated_request": request_summary(translated),
+        "instructions": translated
+            .get("instructions")
+            .and_then(|v| v.as_str())
+            .map(instruction_audit),
+        "compact_command": find_first_directive_snippet(original, COMPACT_COMMAND_PATTERNS)
+            .or_else(|| find_first_directive_snippet(translated, COMPACT_COMMAND_PATTERNS)),
+        "directive_snippets": snippets,
+    }))
+}
+
+fn request_summary(value: &Value) -> Value {
+    json!({
+        "keys": value_keys(value),
+        "json_bytes": serde_json::to_vec(value).map(|bytes| bytes.len()).ok(),
+        "sha256": sha256_json(value),
+        "messages": value
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map(|items| shape_array(items)),
+        "input": value
+            .get("input")
+            .and_then(|v| v.as_array())
+            .map(|items| shape_array(items)),
+    })
+}
+
+fn instruction_audit(text: &str) -> Value {
+    let truncated = if text.len() > COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES {
+        format!(
+            "{}...",
+            truncate_at_char_boundary(text, COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES)
+        )
+    } else {
+        text.to_string()
+    };
+    json!({
+        "chars": text.chars().count(),
+        "bytes": text.len(),
+        "sha256": sha256_bytes(text.as_bytes()),
+        "truncated": text.len() > COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES,
+        "text": truncated,
+    })
+}
+
+fn value_keys(value: &Value) -> Vec<String> {
+    value
+        .as_object()
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn shape_array(items: &[Value]) -> Value {
+    Value::Array(
+        items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                json!({
+                    "index": index,
+                    "role": item.get("role").and_then(|v| v.as_str()),
+                    "type": item.get("type").and_then(|v| v.as_str()),
+                    "keys": value_keys(item),
+                    "json_bytes": serde_json::to_vec(item).map(|bytes| bytes.len()).ok(),
+                    "sha256": sha256_json(item),
+                    "string_field_count": count_string_fields(item),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn count_string_fields(value: &Value) -> usize {
+    match value {
+        Value::String(_) => 1,
+        Value::Array(items) => items.iter().map(count_string_fields).sum(),
+        Value::Object(map) => map.values().map(count_string_fields).sum(),
+        _ => 0,
+    }
+}
+
+fn find_first_directive_snippet(value: &Value, patterns: &[&str]) -> Option<Value> {
+    let mut snippets = Vec::new();
+    collect_snippets_for_patterns("request", "$", value, patterns, &mut snippets);
+    snippets.into_iter().next()
+}
+
+fn collect_directive_snippets(source: &str, value: &Value, snippets: &mut Vec<Value>) {
+    collect_snippets_for_patterns(source, "$", value, COMPACT_DIRECTIVE_PATTERNS, snippets);
+}
+
+fn collect_snippets_for_patterns(
+    source: &str,
+    path: &str,
+    value: &Value,
+    patterns: &[&str],
+    snippets: &mut Vec<Value>,
+) {
+    if snippets.len() >= COMPACT_PROMPT_MAX_SNIPPETS {
+        return;
+    }
+
+    match value {
+        Value::String(text) => {
+            if let Some((pattern, position)) = first_pattern_match(text, patterns) {
+                snippets.push(json!({
+                    "source": source,
+                    "path": path,
+                    "pattern": pattern,
+                    "chars": text.chars().count(),
+                    "bytes": text.len(),
+                    "sha256": sha256_bytes(text.as_bytes()),
+                    "text": snippet_around(text, position, pattern.len()),
+                }));
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect_snippets_for_patterns(
+                    source,
+                    &format!("{path}[{index}]"),
+                    item,
+                    patterns,
+                    snippets,
+                );
+                if snippets.len() >= COMPACT_PROMPT_MAX_SNIPPETS {
+                    break;
+                }
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                collect_snippets_for_patterns(
+                    source,
+                    &format!("{path}.{key}"),
+                    item,
+                    patterns,
+                    snippets,
+                );
+                if snippets.len() >= COMPACT_PROMPT_MAX_SNIPPETS {
+                    break;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn first_pattern_match<'a>(text: &str, patterns: &'a [&str]) -> Option<(&'a str, usize)> {
+    let lower = text.to_ascii_lowercase();
+    patterns
+        .iter()
+        .filter_map(|pattern| {
+            lower
+                .find(&pattern.to_ascii_lowercase())
+                .map(|position| (*pattern, position))
+        })
+        .min_by_key(|(_, position)| *position)
+}
+
+fn snippet_around(text: &str, position: usize, matched_bytes: usize) -> String {
+    let mut start = position.saturating_sub(COMPACT_PROMPT_SNIPPET_RADIUS_BYTES);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let mut end = (position + matched_bytes + COMPACT_PROMPT_SNIPPET_RADIUS_BYTES).min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+
+    let mut snippet = String::new();
+    if start > 0 {
+        snippet.push_str("...");
+    }
+    snippet.push_str(&text[start..end]);
+    if end < text.len() {
+        snippet.push_str("...");
+    }
+    snippet
+}
+
+fn sha256_json(value: &Value) -> Option<String> {
+    serde_json::to_vec(value)
+        .ok()
+        .map(|bytes| sha256_bytes(&bytes))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn safe_dump_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+}
+
+fn write_private_dump_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    std::io::Write::write_all(&mut file, bytes)
+}
+
 fn dump_proxy_error(
     profile: &str,
     kind: &str,
@@ -1074,16 +1451,7 @@ fn dump_proxy_error(
         return;
     }
 
-    let safe_profile = profile
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
+    let safe_profile = safe_dump_component(profile);
     let path = dir.join(format!(
         "{}-{}-{}-{}.json",
         chrono::Local::now().format("%Y%m%d-%H%M%S%.3f"),
@@ -1287,6 +1655,159 @@ mod tests {
 
         let err: anyhow::Error = err.into();
         assert_eq!(circuit_decision_for_error(&err), CircuitDecision::Direct);
+    }
+
+    #[test]
+    fn compact_prompt_audit_detects_summary_task_without_dumping_transcript_text() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "ordinary transcript text SECRET_TRANSCRIPT_UNRELATED"
+                }
+            ]
+        });
+        let translated = json!({
+            "model": "gpt-5.5",
+            "stream": true,
+            "store": false,
+            "instructions": "normal system instructions",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far.\nInclude pending tasks and current work."
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "SECRET_TRANSCRIPT_UNRELATED"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        assert!(is_compact_prompt_audit_request(&original, &translated));
+        let audit =
+            build_compact_prompt_audit("codex-sub", "https://example.test", &original, &translated)
+                .unwrap();
+        let serialized = serde_json::to_string(&audit).unwrap();
+
+        assert!(serialized.contains("create a detailed summary"));
+        assert!(serialized.contains("directive_snippets"));
+        assert!(serialized.contains("sha256"));
+        assert!(serialized.contains("json_bytes"));
+        assert!(!serialized.contains("SECRET_TRANSCRIPT_UNRELATED"));
+    }
+
+    #[test]
+    fn compact_prompt_override_appends_instruction_and_removes_reasoning() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "stream": true,
+            "input": []
+        });
+
+        assert!(apply_compact_prompt_overrides(&original, &mut translated));
+
+        let instructions = translated["instructions"].as_str().unwrap();
+        assert!(instructions.starts_with("base instructions\n\n"));
+        assert!(instructions.contains("Additional claudex compaction instruction"));
+        assert!(instructions.contains("Target 800-1500 words"));
+        assert!(translated.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_is_not_applied_to_regular_requests() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Please summarize this function briefly."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "stream": true,
+            "input": []
+        });
+        let unchanged = translated.clone();
+
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
+    }
+
+    #[test]
+    fn compact_prompt_audit_detects_claude_compact_command() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"
+                }
+            ]
+        });
+        let translated = json!({
+            "model": "gpt-5.5",
+            "stream": true,
+            "input": []
+        });
+
+        assert!(is_compact_prompt_audit_request(&original, &translated));
+        let audit =
+            build_compact_prompt_audit("codex-sub", "https://example.test", &original, &translated)
+                .unwrap();
+
+        assert!(audit["compact_command"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("/compact"));
+    }
+
+    #[test]
+    fn compact_prompt_audit_ignores_existing_compacted_context_without_task_directive() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n7. Pending Tasks:\n8. Current Work:"
+                }
+            ]
+        });
+        let translated = json!({
+            "model": "gpt-5.5",
+            "stream": true,
+            "input": []
+        });
+
+        assert!(!is_compact_prompt_audit_request(&original, &translated));
+        assert!(build_compact_prompt_audit(
+            "codex-sub",
+            "https://example.test",
+            &original,
+            &translated
+        )
+        .is_none());
     }
 
     #[test]

@@ -271,8 +271,6 @@ fn apply_reasoning(body: &mut Value, anthropic: &Value) {
 
     if let Some(effort) = effort {
         body["reasoning"] = json!({"effort": effort, "summary": "detailed"});
-    } else {
-        body["reasoning"] = json!({"summary": "auto"});
     }
 }
 
@@ -1071,6 +1069,17 @@ mod tests {
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["name"], "result");
         assert_eq!(body["prompt_cache_key"], "claude-session-1");
+    }
+
+    #[test]
+    fn test_plain_request_does_not_request_reasoning_by_default() {
+        let anthropic = json!({
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Summarize this session for compact"}],
+        });
+
+        let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
+        assert!(body.get("reasoning").is_none());
     }
 
     #[test]

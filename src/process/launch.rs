@@ -192,7 +192,7 @@ fn is_openai_responses_oauth_profile(profile: &ProfileConfig) -> bool {
 fn claude_visible_model(model: &str, enable_openai_context_window: bool) -> String {
     if !enable_openai_context_window
         || has_context_window_suffix(model)
-        || !is_openai_gpt_model(strip_context_window_suffix(model))
+        || !is_large_context_gpt_model(strip_context_window_suffix(model))
     {
         model.to_string()
     } else {
@@ -317,6 +317,35 @@ mod tests {
         assert!(["gpt-5.5", "gpt-5.5-mini", "gpt-5.4-pro"]
             .into_iter()
             .all(|model| !is_large_context_gpt_model(model)));
+    }
+
+    #[test]
+    fn claude_visible_model_adds_suffix_only_for_large_context_models() {
+        assert_eq!(claude_visible_model("gpt-5.5", true), "gpt-5.5");
+        assert_eq!(claude_visible_model("gpt-5.5-mini", true), "gpt-5.5-mini");
+        assert_eq!(claude_visible_model("gpt-4o", true), "gpt-4o");
+        assert_eq!(claude_visible_model("gpt-5.5-pro", true), "gpt-5.5-pro[1m]");
+        assert_eq!(claude_visible_model("gpt-5.6", true), "gpt-5.6[1m]");
+        assert_eq!(claude_visible_model("gpt-5.6[1m]", true), "gpt-5.6[1m]");
+        assert_eq!(claude_visible_model("gpt-5.6[1M]", true), "gpt-5.6[1M]");
+        assert_eq!(claude_visible_model("gpt-5.6", false), "gpt-5.6");
+        assert_eq!(
+            claude_visible_model("claude-sonnet-4-6", true),
+            "claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
+    fn openai_model_auto_compact_window_uses_legacy_window_for_non_large_gpt_models() {
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5"), Some(272_000));
+        assert_eq!(
+            openai_model_auto_compact_window("gpt-5.5-mini"),
+            Some(272_000)
+        );
+        assert_eq!(openai_model_auto_compact_window("gpt-4o"), Some(272_000));
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5-pro"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.6"), None);
+        assert_eq!(openai_model_auto_compact_window("claude-sonnet-4-6"), None);
     }
 
     #[test]

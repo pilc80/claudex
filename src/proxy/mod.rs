@@ -11,6 +11,7 @@ pub mod translate;
 pub mod util;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::extract::DefaultBodyLimit;
@@ -40,6 +41,15 @@ pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 pub const REQUEST_BODY_LIMIT_ENV: &str = "CLAUDEX_BODY_LIMIT_BYTES";
 pub const HEALTH_VERSION_HEADER: &str = "x-claudex-version";
 pub const HEALTH_BODY_LIMIT_HEADER: &str = "x-claudex-body-limit";
+pub const UPSTREAM_CONNECT_TIMEOUT_SECS: u64 = 30;
+pub const UPSTREAM_STREAM_READ_TIMEOUT_SECS: u64 = 300;
+
+fn build_upstream_http_client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(UPSTREAM_CONNECT_TIMEOUT_SECS))
+        .read_timeout(Duration::from_secs(UPSTREAM_STREAM_READ_TIMEOUT_SECS))
+        .build()?)
+}
 
 pub fn request_body_limit_bytes_from_env(value: Option<&str>) -> Result<usize> {
     match value {
@@ -66,9 +76,7 @@ pub async fn start_proxy(config: ClaudexConfig, port_override: Option<u16>) -> R
     let request_body_limit =
         request_body_limit_bytes_from_env(std::env::var(REQUEST_BODY_LIMIT_ENV).ok().as_deref())?;
 
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()?;
+    let http_client = build_upstream_http_client()?;
 
     // Build RAG index if enabled
     let rag_index = if config.context.rag.enabled {
@@ -179,5 +187,14 @@ mod tests {
     fn request_body_limit_rejects_invalid_values() {
         let err = request_body_limit_bytes_from_env(Some("64mb")).unwrap_err();
         assert!(err.to_string().contains(REQUEST_BODY_LIMIT_ENV));
+    }
+
+    #[test]
+    fn upstream_http_client_uses_idle_read_timeout_instead_of_total_deadline() {
+        let client = build_upstream_http_client().unwrap();
+        let debug = format!("{client:?}");
+
+        assert!(debug.contains("read_timeout"));
+        assert!(!debug.contains("total_timeout"));
     }
 }
