@@ -604,5 +604,4 @@ mod tests {
         assert_eq!(token.refresh_token.as_deref(), Some("ref"));
         assert_eq!(token.expires_at, Some(1700000000000));
     }
-
 }

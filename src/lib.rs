@@ -148,12 +148,8 @@ async fn maybe_reauth_oauth_before_startup(
         }
     };
 
-    if prompt_yes_no(
-        "Authenticate ChatGPT/Codex before starting Claude?",
-        false,
-    )? {
-        oauth::providers::login(config, "chatgpt", &profile.name, force_login, false, None)
-            .await?;
+    if prompt_yes_no("Authenticate ChatGPT/Codex before starting Claude?", false)? {
+        oauth::providers::login(config, "chatgpt", &profile.name, force_login, false, None).await?;
     }
     Ok(())
 }
@@ -663,7 +659,9 @@ mod tests {
     fn startup_oauth_health_reports_missing_token() {
         assert_eq!(
             startup_oauth_health_from_token_result(
-                Err(anyhow::anyhow!("no OAuth token found in configured sources")),
+                Err(anyhow::anyhow!(
+                    "no OAuth token found in configured sources"
+                )),
                 1_000
             ),
             Some(StartupOAuthHealth::Missing)

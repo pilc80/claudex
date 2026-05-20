@@ -158,10 +158,7 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
                 p.name
             ));
         }
-        if p.enabled
-            && p.auth_type == AuthType::ApiKey
-            && p.api_key.is_empty()
-        {
+        if p.enabled && p.auth_type == AuthType::ApiKey && p.api_key.is_empty() {
             warnings.push(format!(
                 "profile '{}': enabled with auth_type=ApiKey but no api_key",
                 p.name
@@ -174,7 +171,10 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
             ));
         }
         if p.enabled && p.auth_type == AuthType::OAuth {
-            let provider = p.oauth_provider.as_ref().map(|provider| provider.normalize());
+            let provider = p
+                .oauth_provider
+                .as_ref()
+                .map(|provider| provider.normalize());
             add_oauth_token_health_warnings(
                 &p.name,
                 provider.as_ref().map(load_oauth_token_without_keyring),
@@ -465,16 +465,15 @@ mod tests {
 
         add_oauth_token_health_warnings(
             "codex-sub",
-            Some(Err(anyhow::anyhow!("no OAuth token found in configured sources"))),
+            Some(Err(anyhow::anyhow!(
+                "no OAuth token found in configured sources"
+            ))),
             &mut warnings,
             &mut actions,
         );
 
-        assert!(warnings
-            .iter()
-            .any(|warning| warning.contains(
-                "OAuth token is not available from configured non-keyring sources"
-            )));
+        assert!(warnings.iter().any(|warning| warning
+            .contains("OAuth token is not available from configured non-keyring sources")));
         assert!(actions.iter().any(|action| {
             action.contains("reauthenticate with")
                 && action.contains("claudex-config auth login chatgpt --profile codex-sub")
