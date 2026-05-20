@@ -1,6 +1,6 @@
 //! Layer 1: Token Sources
 //!
-//! 统一凭证读取层，支持多种来源: 环境变量、config、外部 CLI 文件、keyring、Copilot config。
+//! 统一凭证读取层，支持多种来源: 环境变量、config、外部 CLI 文件、Copilot config。
 
 use anyhow::{Context, Result};
 
@@ -42,44 +42,19 @@ impl RawCredential {
     }
 }
 
-// ── Keyring ──────────────────────────────────────────────────────────────
-
-const KEYRING_SERVICE: &str = "claudex";
-
-fn keyring_entry_name(profile_name: &str) -> String {
-    format!("{profile_name}-oauth-token")
-}
-
 pub fn store_keyring(profile_name: &str, token: &OAuthToken) -> Result<()> {
-    let entry_name = keyring_entry_name(profile_name);
-    let json = serde_json::to_string(token).context("failed to serialize token")?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &entry_name)
-        .context("failed to create keyring entry")?;
-    entry
-        .set_password(&json)
-        .context("failed to store token in keyring")?;
-    Ok(())
+    let _ = (profile_name, token);
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 pub fn load_keyring(profile_name: &str) -> Result<OAuthToken> {
-    let entry_name = keyring_entry_name(profile_name);
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &entry_name)
-        .context("failed to create keyring entry")?;
-    let json = entry
-        .get_password()
-        .context("no OAuth token found in keyring")?;
-    let token: OAuthToken = serde_json::from_str(&json).context("failed to parse stored token")?;
-    Ok(token)
+    let _ = profile_name;
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 pub fn delete_keyring(profile_name: &str) -> Result<()> {
-    let entry_name = keyring_entry_name(profile_name);
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &entry_name)
-        .context("failed to create keyring entry")?;
-    entry
-        .delete_credential()
-        .context("failed to delete token from keyring")?;
-    Ok(())
+    let _ = profile_name;
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 // ── External CLI Readers ─────────────────────────────────────────────────
@@ -318,7 +293,7 @@ pub fn load_credential_chain(provider: &OAuthProvider) -> Result<RawCredential> 
 
     match provider {
         OAuthProvider::Claude => {
-            // env ANTHROPIC_API_KEY > ~/.claude/.credentials.json > keyring
+            // env ANTHROPIC_API_KEY > ~/.claude/.credentials.json
             if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
                 if !key.is_empty() {
                     return Ok(RawCredential {
@@ -334,7 +309,7 @@ pub fn load_credential_chain(provider: &OAuthProvider) -> Result<RawCredential> 
             read_claude_credentials()
         }
         OAuthProvider::Chatgpt => {
-            // env CODEX_API_KEY > ~/.codex/auth.json > keyring
+            // env CODEX_API_KEY > ~/.codex/auth.json
             if let Ok(key) = std::env::var("CODEX_API_KEY") {
                 if !key.is_empty() {
                     return Ok(RawCredential {
@@ -631,7 +606,4 @@ mod tests {
     }
 
     #[test]
-    fn test_keyring_entry_name() {
-        assert_eq!(keyring_entry_name("chatgpt-pro"), "chatgpt-pro-oauth-token");
-    }
 }

@@ -240,25 +240,9 @@ impl OAuthProviderHandler for DeviceCodeHandler {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<OAuthToken>> + Send + '_>> {
         let profile_name = profile_name.to_string();
         Box::pin(async move {
-            let token = super::source::load_keyring(&profile_name)?;
-            let refresh_token = token
-                .refresh_token
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("no refresh_token, please re-login"))?;
-            let client = reqwest::Client::new();
-            let resp = super::server::refresh_access_token(
-                &client,
-                "https://chat.qwen.ai/api/oauth/token",
-                refresh_token,
-                "claudex-qwen",
+            anyhow::bail!(
+                "Qwen token refresh for '{profile_name}' requires durable token storage, but keyring storage is disabled and no file-backed store is configured."
             )
-            .await?;
-            let mut new_token = OAuthToken::from_token_response(&resp)
-                .ok_or_else(|| anyhow::anyhow!("failed to parse refreshed token"))?;
-            if new_token.refresh_token.is_none() {
-                new_token.refresh_token = token.refresh_token;
-            }
-            Ok(new_token)
         })
     }
 

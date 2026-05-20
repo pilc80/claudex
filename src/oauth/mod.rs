@@ -73,7 +73,7 @@ impl OAuthProvider {
     }
 }
 
-/// 存储在 keyring 中的 token（JSON 序列化）
+/// OAuth token represented in memory and file-backed credential sources.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthToken {
     pub access_token: String,

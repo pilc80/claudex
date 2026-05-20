@@ -3,7 +3,7 @@ use std::io::IsTerminal;
 use anyhow::{Context, Result};
 
 use crate::cli::ConfigAction;
-use crate::oauth::{AuthType, OAuthToken};
+use crate::oauth::{AuthType, OAuthProvider, OAuthToken};
 
 use super::ClaudexConfig;
 
@@ -124,13 +124,13 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
     }
 
     let mut seen_names = std::collections::HashSet::new();
-    let checks_oauth_keyring = config
+    let checks_oauth_sources = config
         .profiles
         .iter()
         .any(|p| p.enabled && p.auth_type == AuthType::OAuth);
-    if checks_oauth_keyring {
-        print_keychain_notice(
-            "doctor checks OAuth token health, so your OS may ask to allow keychain access",
+    if checks_oauth_sources {
+        print_oauth_source_notice(
+            "doctor checks OAuth token health using configured provider credential files and environment variables",
         );
     }
 
@@ -161,17 +161,23 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
         if p.enabled
             && p.auth_type == AuthType::ApiKey
             && p.api_key.is_empty()
-            && p.api_key_keyring.is_none()
         {
             warnings.push(format!(
-                "profile '{}': enabled with auth_type=ApiKey but no api_key or api_key_keyring",
+                "profile '{}': enabled with auth_type=ApiKey but no api_key",
+                p.name
+            ));
+        }
+        if p.enabled && p.auth_type == AuthType::ApiKey && p.api_key_keyring.is_some() {
+            warnings.push(format!(
+                "profile '{}': api_key_keyring is configured but keyring storage is disabled",
                 p.name
             ));
         }
         if p.enabled && p.auth_type == AuthType::OAuth {
+            let provider = p.oauth_provider.as_ref().map(|provider| provider.normalize());
             add_oauth_token_health_warnings(
                 &p.name,
-                crate::oauth::source::load_keyring(&p.name),
+                provider.as_ref().map(load_oauth_token_without_keyring),
                 &mut warnings,
                 &mut actions,
             );
@@ -253,21 +259,28 @@ const OAUTH_EXPIRY_WARNING_DAYS: i64 = 7;
 
 fn add_oauth_token_health_warnings(
     profile_name: &str,
-    token: Result<OAuthToken>,
+    token: Option<Result<OAuthToken>>,
     warnings: &mut Vec<String>,
     actions: &mut Vec<String>,
 ) {
     match token {
-        Ok(token) => add_oauth_expiry_warnings(profile_name, token.expires_at, warnings, actions),
-        Err(e) => {
+        Some(Ok(token)) => {
+            add_oauth_expiry_warnings(profile_name, token.expires_at, warnings, actions)
+        }
+        Some(Err(e)) => {
             warnings.push(format!(
-                "profile '{profile_name}': OAuth token is not available or unreadable: {e}"
+                "profile '{profile_name}': OAuth token is not available from configured non-keyring sources: {e}"
             ));
             actions.push(format!(
                 "reauthenticate with `claudex-config auth login chatgpt --profile {profile_name}`"
             ));
         }
+        None => {}
     }
+}
+
+fn load_oauth_token_without_keyring(provider: &OAuthProvider) -> Result<OAuthToken> {
+    crate::oauth::source::load_credential_chain(provider).map(|cred| cred.into_oauth_token())
 }
 
 fn add_oauth_expiry_warnings(
@@ -300,9 +313,9 @@ fn add_oauth_expiry_warnings(
     }
 }
 
-fn print_keychain_notice(message: &str) {
+fn print_oauth_source_notice(message: &str) {
     if std::io::stderr().is_terminal() {
-        eprintln!("\x1b[33mNote:\x1b[0m doctor checks OAuth token health, so your OS may \x1b[33mask to allow keychain access\x1b[0m.");
+        eprintln!("\x1b[33mNote:\x1b[0m {message}.");
     } else {
         eprintln!("Note: {message}.");
     }
@@ -452,14 +465,15 @@ mod tests {
 
         add_oauth_token_health_warnings(
             "codex-sub",
-            Err(anyhow::anyhow!("no OAuth token found in keyring")),
+            Some(Err(anyhow::anyhow!("no OAuth token found in configured sources"))),
             &mut warnings,
             &mut actions,
         );
 
         assert!(warnings
             .iter()
-            .any(|warning| warning.contains("OAuth token is not available")));
+            .any(|warning| warning
+                .contains("OAuth token is not available from configured non-keyring sources")));
         assert!(actions.iter().any(|action| {
             action.contains("reauthenticate with")
                 && action.contains("claudex-config auth login chatgpt --profile codex-sub")

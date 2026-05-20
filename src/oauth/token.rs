@@ -9,15 +9,18 @@ use super::OAuthToken;
 // ── Re-exports from source.rs ────────────────────────────────────────────
 
 pub fn store_token(profile_name: &str, token: &OAuthToken) -> Result<()> {
-    super::source::store_keyring(profile_name, token)
+    let _ = (profile_name, token);
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 pub fn load_token(profile_name: &str) -> Result<OAuthToken> {
-    super::source::load_keyring(profile_name)
+    let _ = profile_name;
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 pub fn delete_token(profile_name: &str) -> Result<()> {
-    super::source::delete_keyring(profile_name)
+    let _ = profile_name;
+    anyhow::bail!("OAuth keyring storage is disabled")
 }
 
 pub fn read_claude_credentials() -> Result<OAuthToken> {
@@ -56,5 +59,30 @@ mod tests {
             .encode(serde_json::to_vec(&payload).unwrap());
         let fake_jwt = format!("eyJhbGciOiJub25lIn0.{payload_b64}.sig");
         assert_eq!(extract_jwt_exp_pub(&fake_jwt), Some(1700000000000_i64));
+    }
+
+    #[test]
+    fn token_keyring_wrappers_are_disabled() {
+        let token = OAuthToken {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            token_type: Some("Bearer".to_string()),
+            scopes: None,
+            extra: None,
+        };
+
+        assert!(store_token("codex-sub", &token)
+            .unwrap_err()
+            .to_string()
+            .contains("keyring storage is disabled"));
+        assert!(load_token("codex-sub")
+            .unwrap_err()
+            .to_string()
+            .contains("keyring storage is disabled"));
+        assert!(delete_token("codex-sub")
+            .unwrap_err()
+            .to_string()
+            .contains("keyring storage is disabled"));
     }
 }

@@ -207,40 +207,13 @@ pub async fn interactive_add(config: &mut ClaudexConfig) -> Result<()> {
     // 4. API Key
     let api_key = prompt_input("API Key (leave empty for none)")?;
 
-    // 5. Optionally store in keyring
-    let api_key_keyring = if !api_key.is_empty() {
-        let store = prompt_input("Store API key in system keyring? [y/N]")?;
-        if store.eq_ignore_ascii_case("y") {
-            let entry_name = format!("{name}-api-key");
-            match keyring::Entry::new("claudex", &entry_name) {
-                Ok(entry) => {
-                    if let Err(e) = entry.set_password(&api_key) {
-                        println!("Warning: failed to store in keyring: {e}");
-                        None
-                    } else {
-                        println!("Stored in keyring as '{entry_name}'");
-                        Some(entry_name)
-                    }
-                }
-                Err(e) => {
-                    println!("Warning: keyring not available: {e}");
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // 6. Default model
+    // 5. Default model
     let default_model = prompt_input("Default model")?;
     if default_model.is_empty() {
         bail!("model name cannot be empty");
     }
 
-    // 7. Backup providers (optional)
+    // 6. Backup providers (optional)
     let backup_input = prompt_input("Backup providers (comma-separated, or empty)")?;
     let backup_providers: Vec<String> = if backup_input.is_empty() {
         Vec::new()
@@ -256,12 +229,8 @@ pub async fn interactive_add(config: &mut ClaudexConfig) -> Result<()> {
         name: name.clone(),
         provider_type,
         base_url,
-        api_key: if api_key_keyring.is_some() {
-            String::new()
-        } else {
-            api_key
-        },
-        api_key_keyring,
+        api_key,
+        api_key_keyring: None,
         default_model,
         backup_providers,
         ..Default::default()

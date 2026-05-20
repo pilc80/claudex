@@ -100,13 +100,13 @@ translation:
 
 ### Authentication
 
-- **API key** (default): configure `api_key` or `api_key_keyring`.
+- **API key** (default): configure `api_key`; OAuth/keyring-backed storage is disabled.
 - **OAuth subscription**: configure `auth_type = "oauth"` and `oauth_provider`;
   complete setup through `claudex auth login`.
   - Claude subscription special case: skip the proxy and let Claude Code use its
     own OAuth session directly.
-  - Other providers: store OAuth tokens in the keyring; the proxy loads and
-    refreshes them automatically.
+  - Other providers: use provider-specific files or environment variables; the
+    proxy loads and refreshes them where supported.
 
 ### Configuration
 

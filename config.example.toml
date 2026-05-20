@@ -30,8 +30,7 @@ claude = "claude-sonnet-4-20250514"
 #   name            = "profile-name"           # (required) unique identifier
 #   provider_type   = "OpenAICompatible"       # DirectAnthropic | OpenAICompatible | OpenAIResponses
 #   base_url        = "https://..."            # (required) API endpoint
-#   api_key         = "sk-..."                 # API key (or use api_key_keyring)
-#   api_key_keyring = "keyring-entry"          # load api_key from system keyring
+#   api_key         = "sk-..."                 # API key
 #   default_model   = "model-name"             # (required) default model for this profile
 #   enabled         = true                     # enable/disable profile (default: true)
 #   priority        = 100                      # fallback priority, higher = preferred (default: 100)
@@ -62,7 +61,7 @@ claude = "claude-sonnet-4-20250514"
 name = "anthropic"
 provider_type = "DirectAnthropic"
 base_url = "https://api.anthropic.com"
-api_key = "YOUR_ANTHROPIC_KEY"   # or use api_key_keyring = "anthropic"
+api_key = "YOUR_ANTHROPIC_KEY"
 default_model = "claude-sonnet-4-20250514"
 enabled = true
 priority = 100

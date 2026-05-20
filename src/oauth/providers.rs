@@ -133,10 +133,8 @@ fn ensure_oauth_profile(
 }
 
 // ── OAuth client IDs ─────────────────────────────────────────────────────
-// ChatGPT + GitHub Copilot IDs 已移至 exchange.rs
-// Qwen 保留在此，因为仅在 providers.rs 的 device code flow 中使用
-
-const QWEN_CLIENT_ID: &str = "claudex-qwen";
+// ChatGPT + GitHub Copilot IDs 已移至 exchange.rs.
+// Qwen device-code storage is disabled because keyring storage is disabled.
 
 // ── Login ───────────────────────────────────────────────────────────────
 
@@ -174,12 +172,10 @@ pub async fn login(
 async fn login_claude(profile_name: &str) -> Result<()> {
     println!("Reading Claude credentials from ~/.claude/.credentials.json...");
 
-    let cred = super::source::read_claude_credentials()
+    super::source::read_claude_credentials()
         .context("Failed to read Claude credentials. Make sure Claude Code is installed and you have logged in with `claude` first.")?;
-    let token = cred.into_oauth_token();
 
-    super::source::store_keyring(profile_name, &token)?;
-    println!("Claude OAuth token stored for profile '{profile_name}'.");
+    println!("Claude credentials available for profile '{profile_name}'.");
     println!(
         "Note: Claude subscription profiles bypass the proxy (Claude Code uses its own OAuth)."
     );
@@ -200,10 +196,8 @@ async fn login_chatgpt(profile_name: &str, force: bool, headless: bool) -> Resul
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
                 println!("Found Codex CLI credentials (auth_mode: {auth_mode})");
-                let token = cred.into_oauth_token();
-                super::source::store_keyring(profile_name, &token)?;
-                println!("ChatGPT OAuth token stored for profile '{profile_name}'.");
-                println!("Token will be refreshed automatically.");
+                println!("ChatGPT OAuth credentials available for profile '{profile_name}'.");
+                println!("Tokens are read from ~/.codex/auth.json.");
                 return Ok(());
             }
             Err(e) => {
@@ -258,11 +252,10 @@ async fn login_chatgpt_browser(profile_name: &str) -> Result<()> {
         super::exchange::exchange_chatgpt_code(&client, &code, &redirect_uri, &pkce.code_verifier)
             .await?;
 
-    // 存储到 keyring 并回写 ~/.codex/auth.json
-    super::source::store_keyring(profile_name, &token)?;
+    // Persist ChatGPT/Codex credentials in the Codex CLI auth file.
     super::source::write_codex_credentials_atomic(&token)?;
 
-    println!("ChatGPT OAuth token stored for profile '{profile_name}'.");
+    println!("ChatGPT OAuth token stored in ~/.codex/auth.json for profile '{profile_name}'.");
     Ok(())
 }
 
@@ -287,10 +280,9 @@ async fn login_chatgpt_headless(profile_name: &str) -> Result<()> {
     )
     .await?;
 
-    super::source::store_keyring(profile_name, &token)?;
     super::source::write_codex_credentials_atomic(&token)?;
 
-    println!("ChatGPT OAuth token stored for profile '{profile_name}'.");
+    println!("ChatGPT OAuth token stored in ~/.codex/auth.json for profile '{profile_name}'.");
     Ok(())
 }
 
@@ -306,20 +298,10 @@ async fn login_github(profile_name: &str, force: bool, enterprise_url: Option<&s
                 match super::exchange::exchange_github_for_copilot(&client, &cred.access_token)
                     .await
                 {
-                    Ok(copilot) => {
-                        let token = OAuthToken {
-                            access_token: copilot.token,
-                            refresh_token: None,
-                            expires_at: Some(copilot.expires_at * 1000),
-                            token_type: Some("Bearer".to_string()),
-                            scopes: None,
-                            extra: Some(serde_json::json!({
-                                "provider": "copilot",
-                                "github_token": cred.access_token,
-                            })),
-                        };
-                        super::source::store_keyring(profile_name, &token)?;
-                        println!("GitHub Copilot token stored for profile '{profile_name}'.");
+                    Ok(_copilot) => {
+                        println!(
+                            "GitHub Copilot credentials available for profile '{profile_name}'."
+                        );
                         return Ok(());
                     }
                     Err(e) => {
@@ -335,81 +317,9 @@ async fn login_github(profile_name: &str, force: bool, enterprise_url: Option<&s
         }
     }
 
-    // Device code flow
-    let github_host = enterprise_url.unwrap_or("github.com");
-    println!("Starting GitHub device code flow ({github_host})...");
-
-    let client = reqwest::Client::new();
-    let device_code_url = format!("https://{github_host}/login/device/code");
-    let resp = client
-        .post(&device_code_url)
-        .header("Accept", "application/json")
-        .form(&[
-            ("client_id", super::exchange::GITHUB_COPILOT_CLIENT_ID),
-            ("scope", "read:user"),
-        ])
-        .send()
-        .await
-        .context("failed to request GitHub device code")?;
-
-    let body: serde_json::Value = resp.json().await.context("invalid device code response")?;
-
-    let user_code = body
-        .get("user_code")
-        .and_then(|v| v.as_str())
-        .context("missing user_code")?;
-    let verification_uri = body
-        .get("verification_uri")
-        .and_then(|v| v.as_str())
-        .context("missing verification_uri")?;
-    let device_code = body
-        .get("device_code")
-        .and_then(|v| v.as_str())
-        .context("missing device_code")?;
-    let interval = body.get("interval").and_then(|v| v.as_u64()).unwrap_or(5);
-
-    println!();
-    println!("  Open: {verification_uri}");
-    println!("  Enter code: {user_code}");
-    println!();
-    println!("Waiting for authorization...");
-
-    let _ = open_browser(verification_uri);
-
-    let token_url = format!("https://{github_host}/login/oauth/access_token");
-    let token_resp = super::server::poll_device_code(
-        &client,
-        &token_url,
-        device_code,
-        super::exchange::GITHUB_COPILOT_CLIENT_ID,
-        interval,
-        "urn:ietf:params:oauth:grant-type:device_code",
+    anyhow::bail!(
+        "GitHub device-code login requires durable token storage, but keyring storage is disabled and no file-backed GitHub token writer is configured. Configure GitHub Copilot credentials externally, then retry."
     )
-    .await?;
-
-    let github_token = token_resp
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .context("missing access_token in GitHub response")?;
-
-    // 交换为 Copilot bearer token
-    let copilot = super::exchange::exchange_github_for_copilot(&client, github_token).await?;
-
-    let token = OAuthToken {
-        access_token: copilot.token,
-        refresh_token: None,
-        expires_at: Some(copilot.expires_at * 1000),
-        token_type: Some("Bearer".to_string()),
-        scopes: None,
-        extra: Some(serde_json::json!({
-            "provider": "copilot",
-            "github_token": github_token,
-        })),
-    };
-
-    super::source::store_keyring(profile_name, &token)?;
-    println!("GitHub Copilot token stored for profile '{profile_name}'.");
-    Ok(())
 }
 
 /// GitLab Duo: 从环境变量读取 token
@@ -418,9 +328,8 @@ async fn login_gitlab(profile_name: &str) -> Result<()> {
 
     match super::source::load_credential_chain(&OAuthProvider::Gitlab) {
         Ok(cred) => {
-            let token = cred.into_oauth_token();
-            super::source::store_keyring(profile_name, &token)?;
-            println!("GitLab token stored for profile '{profile_name}'.");
+            let _ = cred;
+            println!("GitLab token available for profile '{profile_name}'.");
             Ok(())
         }
         Err(_) => {
@@ -449,10 +358,8 @@ async fn login_google(profile_name: &str) -> Result<()> {
 
     let cred = super::source::read_gemini_credentials()
         .context("Failed to read Gemini CLI credentials. Make sure Gemini CLI is installed and authenticated.")?;
-    let token = cred.into_oauth_token();
-
-    super::source::store_keyring(profile_name, &token)?;
-    println!("Google OAuth token stored for profile '{profile_name}'.");
+    let _ = cred;
+    println!("Google OAuth credentials available for profile '{profile_name}'.");
     Ok(())
 }
 
@@ -463,87 +370,18 @@ async fn login_kimi(profile_name: &str) -> Result<()> {
     let cred = super::source::read_kimi_credentials().context(
         "Failed to read Kimi CLI credentials. Make sure Kimi CLI is installed and authenticated.",
     )?;
-    let token = cred.into_oauth_token();
-
-    super::source::store_keyring(profile_name, &token)?;
-    println!("Kimi OAuth token stored for profile '{profile_name}'.");
+    let _ = cred;
+    println!("Kimi OAuth credentials available for profile '{profile_name}'.");
     Ok(())
 }
 
 /// Device Code Flow (Qwen only; GitHub uses login_github)
 async fn login_device_code(profile_name: &str, provider: &OAuthProvider) -> Result<()> {
-    let (device_url, token_url, client_id, scope, grant_type) = match provider {
-        OAuthProvider::Qwen => (
-            "https://chat.qwen.ai/api/oauth/device/code",
-            "https://chat.qwen.ai/api/oauth/token",
-            QWEN_CLIENT_ID,
-            "",
-            "urn:ietf:params:oauth:grant-type:device_code",
-        ),
-        _ => anyhow::bail!("device code flow not supported for {:?}", provider),
-    };
-
-    println!("Starting {} device code flow...", provider.display_name());
-
-    let client = reqwest::Client::new();
-
-    let mut form = vec![("client_id", client_id)];
-    if !scope.is_empty() {
-        form.push(("scope", scope));
-    }
-
-    let resp = client
-        .post(device_url)
-        .header("Accept", "application/json")
-        .form(&form)
-        .send()
-        .await
-        .context("failed to request device code")?;
-
-    let body: serde_json::Value = resp.json().await.context("invalid device code response")?;
-
-    let user_code = body
-        .get("user_code")
-        .and_then(|v| v.as_str())
-        .context("missing user_code in response")?;
-    let verification_uri = body
-        .get("verification_uri")
-        .or_else(|| body.get("verification_url"))
-        .and_then(|v| v.as_str())
-        .context("missing verification_uri in response")?;
-    let device_code = body
-        .get("device_code")
-        .and_then(|v| v.as_str())
-        .context("missing device_code in response")?;
-    let interval = body.get("interval").and_then(|v| v.as_u64()).unwrap_or(5);
-
-    println!();
-    println!("  Open: {verification_uri}");
-    println!("  Enter code: {user_code}");
-    println!();
-    println!("Waiting for authorization...");
-
-    let _ = open_browser(verification_uri);
-
-    let token_resp = super::server::poll_device_code(
-        &client,
-        token_url,
-        device_code,
-        client_id,
-        interval,
-        grant_type,
-    )
-    .await?;
-
-    let token =
-        OAuthToken::from_token_response(&token_resp).context("failed to parse token response")?;
-
-    super::source::store_keyring(profile_name, &token)?;
-    println!(
-        "{} OAuth token stored for profile '{profile_name}'.",
+    let _ = profile_name;
+    anyhow::bail!(
+        "{} device-code login requires durable token storage, but keyring storage is disabled and no file-backed store is configured for this provider.",
         provider.display_name()
-    );
-    Ok(())
+    )
 }
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -580,7 +418,16 @@ pub async fn status(config: &ClaudexConfig, profile_name: Option<&str>) -> Resul
             .map(|p| p.display_name())
             .unwrap_or("?");
 
-        let (status_str, expires_str) = match super::source::load_keyring(&profile.name) {
+        let token_result = profile
+            .oauth_provider
+            .as_ref()
+            .map(|provider| {
+                super::source::load_credential_chain(&provider.normalize())
+                    .map(|cred| cred.into_oauth_token())
+            })
+            .unwrap_or_else(|| Err(anyhow::anyhow!("no oauth_provider configured")));
+
+        let (status_str, expires_str) = match token_result {
             Ok(token) => {
                 if token.is_expired(0) {
                     ("expired".to_string(), format_expires(token.expires_at))
@@ -618,10 +465,9 @@ fn format_expires(expires_at: Option<i64>) -> String {
 // ── Logout ──────────────────────────────────────────────────────────────
 
 pub async fn logout(_config: &ClaudexConfig, profile_name: &str) -> Result<()> {
-    match super::source::delete_keyring(profile_name) {
-        Ok(()) => println!("OAuth token removed for profile '{profile_name}'."),
-        Err(e) => println!("No token to remove for '{profile_name}': {e}"),
-    }
+    println!(
+        "OAuth keyring storage is disabled; no Claudex keyring token was removed for profile '{profile_name}'."
+    );
     Ok(())
 }
 
@@ -639,15 +485,11 @@ pub async fn refresh(config: &ClaudexConfig, profile_name: &str) -> Result<()> {
 
     match provider {
         OAuthProvider::Claude => {
-            let cred = super::source::read_claude_credentials()?;
-            let token = cred.into_oauth_token();
-            super::source::store_keyring(profile_name, &token)?;
+            super::source::read_claude_credentials()?;
             println!("Refreshed Claude token from ~/.claude/.credentials.json");
         }
         OAuthProvider::Google | OAuthProvider::Kimi | OAuthProvider::Gitlab => {
-            let cred = super::source::load_credential_chain(provider)?;
-            let token = cred.into_oauth_token();
-            super::source::store_keyring(profile_name, &token)?;
+            super::source::load_credential_chain(provider)?;
             println!(
                 "Refreshed {} token from external CLI",
                 provider.display_name()
@@ -663,7 +505,7 @@ pub async fn refresh(config: &ClaudexConfig, profile_name: &str) -> Result<()> {
 
             let client = reqwest::Client::new();
             let new_token = super::exchange::refresh_chatgpt_token(&client, refresh_tok).await?;
-            super::source::store_keyring(profile_name, &new_token)?;
+            super::source::write_codex_credentials_atomic(&new_token)?;
             println!("Token refreshed for profile '{profile_name}'.");
         }
         OAuthProvider::Github => {
@@ -673,7 +515,7 @@ pub async fn refresh(config: &ClaudexConfig, profile_name: &str) -> Result<()> {
             let client = reqwest::Client::new();
             let copilot =
                 super::exchange::exchange_github_for_copilot(&client, &cred.access_token).await?;
-            let token = OAuthToken {
+            let _token = OAuthToken {
                 access_token: copilot.token,
                 refresh_token: None,
                 expires_at: Some(copilot.expires_at * 1000),
@@ -684,35 +526,12 @@ pub async fn refresh(config: &ClaudexConfig, profile_name: &str) -> Result<()> {
                     "github_token": cred.access_token,
                 })),
             };
-            super::source::store_keyring(profile_name, &token)?;
             println!("GitHub Copilot token refreshed for profile '{profile_name}'.");
         }
         OAuthProvider::Qwen => {
-            let token = super::source::load_keyring(profile_name)
-                .context("no existing token to refresh")?;
-            let refresh_token = token
-                .refresh_token
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("no refresh_token available, please re-login"))?;
-
-            let client = reqwest::Client::new();
-            let resp = super::server::refresh_access_token(
-                &client,
-                "https://chat.qwen.ai/api/oauth/token",
-                refresh_token,
-                QWEN_CLIENT_ID,
-            )
-            .await?;
-
-            let mut new_token = OAuthToken::from_token_response(&resp)
-                .context("failed to parse refreshed token")?;
-
-            if new_token.refresh_token.is_none() {
-                new_token.refresh_token = token.refresh_token;
-            }
-
-            super::source::store_keyring(profile_name, &new_token)?;
-            println!("Token refreshed for profile '{profile_name}'.");
+            anyhow::bail!(
+                "Qwen refresh requires durable token storage, but keyring storage is disabled and no file-backed store is configured for this provider."
+            );
         }
     }
 

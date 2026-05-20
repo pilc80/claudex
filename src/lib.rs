@@ -181,10 +181,11 @@ fn startup_oauth_health(
         return None;
     }
     eprintln!(
-        "Claudex will check OAuth token health before starting Claude and may ask for \x1b[33mkeychain access\x1b[0m."
+        "Claudex will check OAuth token health before starting Claude using configured provider credential files and environment variables."
     );
     startup_oauth_health_from_token_result(
-        oauth::source::load_keyring(&profile.name),
+        oauth::source::load_credential_chain(profile.oauth_provider.as_ref().unwrap())
+            .map(|cred| cred.into_oauth_token()),
         chrono::Utc::now().timestamp_millis(),
     )
 }
@@ -662,7 +663,7 @@ mod tests {
     fn startup_oauth_health_reports_missing_token() {
         assert_eq!(
             startup_oauth_health_from_token_result(
-                Err(anyhow::anyhow!("no OAuth token found in keyring")),
+                Err(anyhow::anyhow!("no OAuth token found in configured sources")),
                 1_000
             ),
             Some(StartupOAuthHealth::Missing)

@@ -23,7 +23,7 @@ claudex
 - 🏆 **Compaction support** — preserve `/compact`, auto-compaction, and context-limit recovery behavior.
 - 🏆 **Correct error translation** — surface OpenAI/Codex failures as actionable Claude Code errors.
 - 🏆 **Setup health checks** — use `claudex-config config doctor` to check config, auth, proxy state, setup, and reauthentication.
-- 🏆 **Local-first privacy** — run locally with explicit routing; OAuth tokens stay in the OS credential store/keychain.
+- 🏆 **Local-first privacy** — run locally with explicit routing; OAuth tokens are read from provider-specific local files or environment variables.
 
 ## Why this fork?
 

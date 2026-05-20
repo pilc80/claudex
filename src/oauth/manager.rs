@@ -150,8 +150,10 @@ impl TokenManager {
                     profile = %profile.name,
                     "ChatGPT token expired, refreshing..."
                 );
-                return super::exchange::refresh_chatgpt_token(&self.http_client, refresh_tok)
-                    .await;
+                let new_token =
+                    super::exchange::refresh_chatgpt_token(&self.http_client, refresh_tok).await?;
+                super::source::write_codex_credentials_atomic(&new_token)?;
+                return Ok(new_token);
             }
             anyhow::bail!(
                 "ChatGPT token expired for '{}' and no refresh_token available. Run `claudex-config auth login chatgpt --profile {}`",
