@@ -3,7 +3,7 @@ use std::io::IsTerminal;
 use anyhow::{Context, Result};
 
 use crate::cli::ConfigAction;
-use crate::oauth::AuthType;
+use crate::oauth::{AuthType, OAuthToken};
 
 use super::ClaudexConfig;
 
@@ -169,18 +169,12 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
             ));
         }
         if p.enabled && p.auth_type == AuthType::OAuth {
-            match crate::oauth::source::load_keyring(&p.name) {
-                Ok(token) => add_oauth_expiry_warnings(
-                    &p.name,
-                    token.expires_at,
-                    &mut warnings,
-                    &mut actions,
-                ),
-                Err(e) => warnings.push(format!(
-                    "profile '{}': OAuth token is not available or unreadable: {e}",
-                    p.name
-                )),
-            }
+            add_oauth_token_health_warnings(
+                &p.name,
+                crate::oauth::source::load_keyring(&p.name),
+                &mut warnings,
+                &mut actions,
+            );
         }
     }
 
@@ -256,6 +250,25 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
 }
 
 const OAUTH_EXPIRY_WARNING_DAYS: i64 = 7;
+
+fn add_oauth_token_health_warnings(
+    profile_name: &str,
+    token: Result<OAuthToken>,
+    warnings: &mut Vec<String>,
+    actions: &mut Vec<String>,
+) {
+    match token {
+        Ok(token) => add_oauth_expiry_warnings(profile_name, token.expires_at, warnings, actions),
+        Err(e) => {
+            warnings.push(format!(
+                "profile '{profile_name}': OAuth token is not available or unreadable: {e}"
+            ));
+            actions.push(format!(
+                "reauthenticate with `claudex-config auth login chatgpt --profile {profile_name}`"
+            ));
+        }
+    }
+}
 
 fn add_oauth_expiry_warnings(
     profile_name: &str,
@@ -430,6 +443,27 @@ mod tests {
         let report = build_doctor_report(&config, false).await;
         assert!(matches!(report.status, DoctorStatus::Ok));
         assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn doctor_adds_reauth_action_when_oauth_token_is_missing() {
+        let mut warnings = Vec::new();
+        let mut actions = Vec::new();
+
+        add_oauth_token_health_warnings(
+            "codex-sub",
+            Err(anyhow::anyhow!("no OAuth token found in keyring")),
+            &mut warnings,
+            &mut actions,
+        );
+
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("OAuth token is not available")));
+        assert!(actions.iter().any(|action| {
+            action.contains("reauthenticate with")
+                && action.contains("claudex-config auth login chatgpt --profile codex-sub")
+        }));
     }
 
     #[tokio::test]

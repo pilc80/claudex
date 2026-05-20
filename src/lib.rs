@@ -120,40 +120,55 @@ async fn maybe_reauth_oauth_before_startup(
     profile: &config::ProfileConfig,
     args: &[String],
 ) -> Result<()> {
-    let Some(expiry) = startup_oauth_expiry(profile, args) else {
+    let Some(health) = startup_oauth_health(profile, args) else {
         return Ok(());
     };
 
-    match expiry {
-        StartupOAuthExpiry::Expired => eprintln!(
-            "Claudex warning: OAuth token for '{}' is expired.",
-            profile.name
-        ),
-        StartupOAuthExpiry::Expiring { days } => eprintln!(
-            "Claudex warning: OAuth token for '{}' expires in {days} day(s).",
-            profile.name
-        ),
-    }
+    let force_login = match health {
+        StartupOAuthHealth::Missing => {
+            eprintln!(
+                "Claudex warning: OAuth token for '{}' is not available or unreadable.",
+                profile.name
+            );
+            false
+        }
+        StartupOAuthHealth::Expired => {
+            eprintln!(
+                "Claudex warning: OAuth token for '{}' is expired.",
+                profile.name
+            );
+            true
+        }
+        StartupOAuthHealth::Expiring { days } => {
+            eprintln!(
+                "Claudex warning: OAuth token for '{}' expires in {days} day(s).",
+                profile.name
+            );
+            true
+        }
+    };
 
     if prompt_yes_no(
-        "Re-authenticate ChatGPT/Codex before starting Claude?",
+        "Authenticate ChatGPT/Codex before starting Claude?",
         false,
     )? {
-        oauth::providers::login(config, "chatgpt", &profile.name, true, false, None).await?;
+        oauth::providers::login(config, "chatgpt", &profile.name, force_login, false, None)
+            .await?;
     }
     Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StartupOAuthExpiry {
+enum StartupOAuthHealth {
+    Missing,
     Expired,
     Expiring { days: i64 },
 }
 
-fn startup_oauth_expiry(
+fn startup_oauth_health(
     profile: &config::ProfileConfig,
     args: &[String],
-) -> Option<StartupOAuthExpiry> {
+) -> Option<StartupOAuthHealth> {
     if !std::io::stdin().is_terminal()
         || args.iter().any(|arg| arg == "-p" || arg == "--print")
         || args.first().is_some_and(|arg| !arg.starts_with('-'))
@@ -168,20 +183,33 @@ fn startup_oauth_expiry(
     eprintln!(
         "Claudex will check OAuth token health before starting Claude and may ask for \x1b[33mkeychain access\x1b[0m."
     );
-    let token = oauth::source::load_keyring(&profile.name).ok()?;
-    let expires_at = token.expires_at?;
-    oauth_expiry_status(expires_at, chrono::Utc::now().timestamp_millis())
+    startup_oauth_health_from_token_result(
+        oauth::source::load_keyring(&profile.name),
+        chrono::Utc::now().timestamp_millis(),
+    )
 }
 
-fn oauth_expiry_status(expires_at: i64, now_ms: i64) -> Option<StartupOAuthExpiry> {
+fn startup_oauth_health_from_token_result(
+    token: Result<oauth::OAuthToken>,
+    now_ms: i64,
+) -> Option<StartupOAuthHealth> {
+    let token = match token {
+        Ok(token) => token,
+        Err(_) => return Some(StartupOAuthHealth::Missing),
+    };
+    let expires_at = token.expires_at?;
+    oauth_expiry_status(expires_at, now_ms)
+}
+
+fn oauth_expiry_status(expires_at: i64, now_ms: i64) -> Option<StartupOAuthHealth> {
     let remaining_ms = expires_at - now_ms;
     if remaining_ms <= 0 {
-        return Some(StartupOAuthExpiry::Expired);
+        return Some(StartupOAuthHealth::Expired);
     }
     let warning_ms = OAUTH_STARTUP_WARNING_DAYS * 24 * 60 * 60 * 1000;
     if remaining_ms <= warning_ms {
         let days = (remaining_ms + 86_399_999) / 86_400_000;
-        return Some(StartupOAuthExpiry::Expiring { days });
+        return Some(StartupOAuthHealth::Expiring { days });
     }
     None
 }
@@ -609,7 +637,7 @@ mod tests {
     fn oauth_expiry_status_warns_for_expired_token() {
         assert_eq!(
             oauth_expiry_status(1_000, 2_000),
-            Some(StartupOAuthExpiry::Expired)
+            Some(StartupOAuthHealth::Expired)
         );
     }
 
@@ -619,7 +647,7 @@ mod tests {
         let six_days = 6 * 24 * 60 * 60 * 1000;
         assert_eq!(
             oauth_expiry_status(now + six_days, now),
-            Some(StartupOAuthExpiry::Expiring { days: 6 })
+            Some(StartupOAuthHealth::Expiring { days: 6 })
         );
     }
 
@@ -628,6 +656,17 @@ mod tests {
         let now = 1_000_000;
         let eight_days = 8 * 24 * 60 * 60 * 1000;
         assert_eq!(oauth_expiry_status(now + eight_days, now), None);
+    }
+
+    #[test]
+    fn startup_oauth_health_reports_missing_token() {
+        assert_eq!(
+            startup_oauth_health_from_token_result(
+                Err(anyhow::anyhow!("no OAuth token found in keyring")),
+                1_000
+            ),
+            Some(StartupOAuthHealth::Missing)
+        );
     }
 
     fn proxy_health_requires_current_version_and_body_limit() {
