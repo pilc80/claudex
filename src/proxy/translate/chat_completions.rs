@@ -271,6 +271,7 @@ pub fn openai_to_anthropic(openai: &Value, tool_name_map: &ToolNameMap) -> Resul
                 .get(truncated_name)
                 .map(|s| s.as_str())
                 .unwrap_or(truncated_name);
+            let input = sanitize_tool_input(original_name, input);
 
             content.push(json!({
                 "type": "tool_use",
@@ -326,6 +327,25 @@ pub fn openai_to_anthropic(openai: &Value, tool_name_map: &ToolNameMap) -> Resul
     });
 
     Ok(resp)
+}
+
+fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
+    if tool_name == "Read" {
+        sanitize_read_pages(&mut input);
+    }
+    input
+}
+
+fn sanitize_read_pages(input: &mut Value) {
+    let Some(obj) = input.as_object_mut() else {
+        return;
+    };
+    let pages = obj.get("pages").and_then(|v| v.as_str());
+    let file_path = obj.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+    let is_pdf = file_path.to_ascii_lowercase().ends_with(".pdf");
+    if pages == Some("") || !is_pdf {
+        obj.remove("pages");
+    }
 }
 
 fn convert_content_to_openai(content: Option<&Value>) -> Value {
@@ -792,6 +812,52 @@ mod tests {
         assert_eq!(result["content"][0]["id"], "call_abc");
         assert_eq!(result["content"][0]["name"], "get_weather");
         assert_eq!(result["content"][0]["input"]["city"], "Tokyo");
+    }
+
+    #[test]
+    fn test_read_tool_call_response_strips_invalid_pages() {
+        let resp = json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call_read",
+                        "type": "function",
+                        "function": {
+                            "name": "Read",
+                            "arguments": "{\"file_path\":\"/tmp/a.md\",\"pages\":\"\",\"limit\":10}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {}
+        });
+        let result = openai_to_anthropic(&resp, &empty_map()).unwrap();
+        let input = &result["content"][0]["input"];
+        assert_eq!(input["file_path"], "/tmp/a.md");
+        assert!(input.get("pages").is_none());
+    }
+
+    #[test]
+    fn test_read_pdf_tool_call_response_keeps_pages() {
+        let resp = json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call_read",
+                        "type": "function",
+                        "function": {
+                            "name": "Read",
+                            "arguments": "{\"file_path\":\"/tmp/a.pdf\",\"pages\":\"1-2\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {}
+        });
+        let result = openai_to_anthropic(&resp, &empty_map()).unwrap();
+        assert_eq!(result["content"][0]["input"]["pages"], "1-2");
     }
 
     #[test]

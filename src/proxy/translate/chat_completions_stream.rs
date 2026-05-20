@@ -129,6 +129,25 @@ fn message_start_event() -> String {
     )
 }
 
+fn sanitize_tool_input(tool_name: &str, mut input: Value) -> Value {
+    if tool_name == "Read" {
+        sanitize_read_pages(&mut input);
+    }
+    input
+}
+
+fn sanitize_read_pages(input: &mut Value) {
+    let Some(obj) = input.as_object_mut() else {
+        return;
+    };
+    let pages = obj.get("pages").and_then(|v| v.as_str());
+    let file_path = obj.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+    let is_pdf = file_path.to_ascii_lowercase().ends_with(".pdf");
+    if pages == Some("") || !is_pdf {
+        obj.remove("pages");
+    }
+}
+
 struct StreamState {
     block_index: usize,
     block_started: bool,
@@ -270,17 +289,19 @@ impl StreamState {
                 if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
                     if let Some(ref mut tool_state) = self.current_tool_call {
                         tool_state.arguments_buffer.push_str(args);
-                        events.push(format_sse(
-                            "content_block_delta",
-                            &json!({
-                                "type": "content_block_delta",
-                                "index": self.block_index,
-                                "delta": {
-                                    "type": "input_json_delta",
-                                    "partial_json": args
-                                }
-                            }),
-                        ));
+                        if tool_state.name != "Read" {
+                            events.push(format_sse(
+                                "content_block_delta",
+                                &json!({
+                                    "type": "content_block_delta",
+                                    "index": self.block_index,
+                                    "delta": {
+                                        "type": "input_json_delta",
+                                        "partial_json": args
+                                    }
+                                }),
+                            ));
+                        }
                     }
                 }
             }
@@ -303,8 +324,28 @@ impl StreamState {
     }
 
     fn finalize_tool_call(&mut self) -> Option<Vec<String>> {
-        let _tool_state = self.current_tool_call.take()?;
+        let tool_state = self.current_tool_call.take()?;
         let mut events = Vec::new();
+
+        if tool_state.name == "Read" {
+            let input = sanitize_tool_input(
+                &tool_state.name,
+                serde_json::from_str(&tool_state.arguments_buffer).unwrap_or_else(|_| json!({})),
+            );
+            if input != json!({}) {
+                events.push(format_sse(
+                    "content_block_delta",
+                    &json!({
+                        "type": "content_block_delta",
+                        "index": self.block_index,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": serde_json::to_string(&input).unwrap_or_default(),
+                        }
+                    }),
+                ));
+            }
+        }
 
         if self.block_started {
             events.push(format_sse(
@@ -481,6 +522,87 @@ mod tests {
         let events = state.process_openai_line(&line).unwrap();
         assert!(events.iter().any(|e| e.contains("content_block_stop")));
         assert!(state.current_tool_call.is_none());
+    }
+
+    #[test]
+    fn test_read_stream_strips_invalid_pages() {
+        let mut state = StreamState::new(std::collections::HashMap::new());
+        let start = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "id": "call_read",
+                            "function": {"name": "Read", "arguments": "{\"file_path\":\"/tmp/a.md\","}
+                        }]
+                    }
+                }]
+            })
+        );
+        let delta = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{"function": {"arguments": "\"pages\":\"\",\"limit\":10}"}}]
+                    }
+                }]
+            })
+        );
+        let done = format!(
+            "data: {}",
+            json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]})
+        );
+
+        let mut output = Vec::new();
+        output.extend(state.process_openai_line(&start).unwrap());
+        output.extend(state.process_openai_line(&delta).unwrap_or_default());
+        output.extend(state.process_openai_line(&done).unwrap());
+        let rendered = output.join("\n");
+        assert!(rendered.contains("/tmp/a.md"));
+        assert!(!rendered.contains("pages"));
+    }
+
+    #[test]
+    fn test_read_pdf_stream_keeps_pages() {
+        let mut state = StreamState::new(std::collections::HashMap::new());
+        let start = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "id": "call_read",
+                            "function": {"name": "Read", "arguments": "{\"file_path\":\"/tmp/a.pdf\","}
+                        }]
+                    }
+                }]
+            })
+        );
+        let delta = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{"function": {"arguments": "\"pages\":\"1-2\"}"}}]
+                    }
+                }]
+            })
+        );
+        let done = format!(
+            "data: {}",
+            json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]})
+        );
+
+        let mut output = Vec::new();
+        output.extend(state.process_openai_line(&start).unwrap());
+        output.extend(state.process_openai_line(&delta).unwrap_or_default());
+        output.extend(state.process_openai_line(&done).unwrap());
+        let rendered = output.join("\n");
+        assert!(rendered.contains("/tmp/a.pdf"));
+        assert!(rendered.contains("pages"));
+        assert!(rendered.contains("1-2"));
     }
 
     #[test]

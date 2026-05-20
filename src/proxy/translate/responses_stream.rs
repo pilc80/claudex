@@ -286,6 +286,7 @@ struct ResponsesStreamState {
     pending_event_type: Option<String>,
     last_event_type: Option<String>,
     current_tool_name: Option<String>,
+    current_tool_arguments_buffer: String,
     current_tool_saw_argument_delta: bool,
     verification_recommendation: Option<String>,
 }
@@ -306,6 +307,7 @@ impl ResponsesStreamState {
             pending_event_type: None,
             last_event_type: None,
             current_tool_name: None,
+            current_tool_arguments_buffer: String::new(),
             current_tool_saw_argument_delta: false,
             verification_recommendation: None,
         }
@@ -458,6 +460,7 @@ impl ResponsesStreamState {
                         .cloned()
                         .unwrap_or(name.to_string());
                     self.current_tool_name = Some(original_name.clone());
+                    self.current_tool_arguments_buffer.clear();
                     self.current_tool_saw_argument_delta = false;
                     let call_id = item
                         .get("call_id")
@@ -510,6 +513,10 @@ impl ResponsesStreamState {
                     return vec![];
                 }
                 self.current_tool_saw_argument_delta = true;
+                self.current_tool_arguments_buffer.push_str(delta);
+                if self.current_tool_name.as_deref() == Some("Read") {
+                    return vec![];
+                }
 
                 vec![format_sse(
                     "content_block_delta",
@@ -528,10 +535,16 @@ impl ResponsesStreamState {
                         .unwrap_or("{}");
                     let input = sanitize_tool_input(
                         self.current_tool_name.as_deref().unwrap_or(""),
-                        serde_json::from_str(arguments).unwrap_or_else(|_| json!({})),
+                        serde_json::from_str(arguments).unwrap_or_else(|_| {
+                            serde_json::from_str(&self.current_tool_arguments_buffer)
+                                .unwrap_or_else(|_| json!({}))
+                        }),
                     );
                     let mut events = Vec::new();
-                    if !self.current_tool_saw_argument_delta && input != json!({}) {
+                    if (self.current_tool_name.as_deref() == Some("Read")
+                        || !self.current_tool_saw_argument_delta)
+                        && input != json!({})
+                    {
                         events.push(format_sse(
                             "content_block_delta",
                             &json!({
@@ -546,6 +559,7 @@ impl ResponsesStreamState {
                     }
                     self.block_started = false;
                     self.current_tool_name = None;
+                    self.current_tool_arguments_buffer.clear();
                     self.current_tool_saw_argument_delta = false;
                     events.push(format_sse(
                         "content_block_stop",
@@ -883,6 +897,41 @@ mod tests {
             r#"data: {"type":"response.function_call_arguments.done","arguments":"{\"file_path\":\"/tmp/a.pdf\",\"pages\":\"1-2\"}"}"#,
         );
         assert!(events.join("\n").contains("pages"));
+    }
+
+    #[test]
+    fn test_read_function_call_argument_deltas_strip_invalid_pages() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_read","name":"Read","arguments":"","status":"in_progress"}}"#,
+        );
+        assert!(state
+            .process_line(r#"data: {"type":"response.function_call_arguments.delta","delta":"{\"file_path\":\"/tmp/a.md\","}"#)
+            .is_empty());
+        assert!(state
+            .process_line(r#"data: {"type":"response.function_call_arguments.delta","delta":"\"pages\":\"\",\"limit\":10}"}"#)
+            .is_empty());
+        let events = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.done","arguments":""}"#,
+        );
+        let output = events.join("\n");
+        assert!(output.contains("content_block_delta"));
+        assert!(output.contains("/tmp/a.md"));
+        assert!(!output.contains("pages"));
+    }
+
+    #[test]
+    fn test_non_read_function_call_argument_deltas_still_stream() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_weather","name":"get_weather","arguments":"","status":"in_progress"}}"#,
+        );
+        let events = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.delta","delta":"{\"location\""}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].contains("input_json_delta"));
+        assert!(events[0].contains("location"));
     }
 
     #[test]
