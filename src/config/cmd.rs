@@ -472,8 +472,9 @@ mod tests {
 
         assert!(warnings
             .iter()
-            .any(|warning| warning
-                .contains("OAuth token is not available from configured non-keyring sources")));
+            .any(|warning| warning.contains(
+                "OAuth token is not available from configured non-keyring sources"
+            )));
         assert!(actions.iter().any(|action| {
             action.contains("reauthenticate with")
                 && action.contains("claudex-config auth login chatgpt --profile codex-sub")

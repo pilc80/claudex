@@ -605,5 +605,4 @@ mod tests {
         assert_eq!(token.expires_at, Some(1700000000000));
     }
 
-    #[test]
 }
