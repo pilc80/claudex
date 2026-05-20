@@ -971,9 +971,13 @@ fn parse_buffered_sse_json(buffered: &[u8]) -> Vec<Value> {
 }
 
 fn buffered_has_context_overflow(buffered: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(buffered).to_ascii_lowercase();
-    text.contains("context_length_exceeded")
-        || (text.contains("context window") && text.contains("exceeds"))
+    parse_buffered_sse_json(buffered)
+        .iter()
+        .filter_map(error_translation::from_responses_event)
+        .any(|error| {
+            error.error_type == "invalid_request_error"
+                && error_translation::is_context_overflow_text(&error.message)
+        })
 }
 
 fn buffered_has_translatable_responses_content(buffered: &[u8]) -> bool {
@@ -1897,6 +1901,21 @@ mod tests {
 
         assert!(preflight.context_overflow);
         assert!(String::from_utf8_lossy(&preflight.buffered).contains("context_length_exceeded"));
+    }
+
+    #[test]
+    fn test_responses_preflight_ignores_context_words_echoed_in_created_event() {
+        let buffered = b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\",\"instructions\":\"conversation is not limited by the context window\",\"tools\":[{\"description\":\"If output exceeds 30000 characters, it is truncated.\"}]}}\n\n";
+
+        assert!(!buffered_has_context_overflow(buffered));
+        assert!(!buffered_has_translatable_responses_content(buffered));
+    }
+
+    #[test]
+    fn test_responses_preflight_detects_failed_context_overflow_event() {
+        let buffered = b"event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"Your input exceeds the context window of this model.\"}}}\n\n";
+
+        assert!(buffered_has_context_overflow(buffered));
     }
 
     #[test]

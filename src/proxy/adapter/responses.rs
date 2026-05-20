@@ -8,6 +8,9 @@ use crate::proxy::util::ToolNameMap;
 
 pub struct ResponsesAdapter;
 
+const CHATGPT_CODEX_DEFAULT_INSTRUCTIONS: &str =
+    "You are Claude Code, a software engineering agent running in a terminal.";
+
 impl ProviderAdapter for ResponsesAdapter {
     fn endpoint_path(&self) -> &str {
         "/responses"
@@ -30,6 +33,10 @@ impl ProviderAdapter for ResponsesAdapter {
         }
         if profile.base_url.contains("chatgpt.com/backend-api/codex") {
             responses_body["stream"] = serde_json::json!(true);
+            if responses_body.get("instructions").is_none() {
+                responses_body["instructions"] =
+                    serde_json::json!(CHATGPT_CODEX_DEFAULT_INSTRUCTIONS);
+            }
         }
         Ok(TranslatedRequest {
             body: responses_body,
@@ -115,5 +122,42 @@ mod tests {
 
         let translated = ResponsesAdapter.translate_request(&body, &profile).unwrap();
         assert_eq!(translated.body["model"], "gpt-5.5");
+    }
+
+    #[test]
+    fn test_chatgpt_codex_backend_gets_default_instructions() {
+        let profile = ProfileConfig {
+            default_model: "gpt-5.5".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            ..ProfileConfig::default()
+        };
+
+        let body = json!({
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": true,
+        });
+
+        let translated = ResponsesAdapter.translate_request(&body, &profile).unwrap();
+        assert_eq!(
+            translated.body["instructions"],
+            CHATGPT_CODEX_DEFAULT_INSTRUCTIONS
+        );
+    }
+
+    #[test]
+    fn test_non_chatgpt_responses_backend_keeps_missing_instructions() {
+        let profile = ProfileConfig {
+            default_model: "gpt-5.5".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            ..ProfileConfig::default()
+        };
+
+        let body = json!({
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": true,
+        });
+
+        let translated = ResponsesAdapter.translate_request(&body, &profile).unwrap();
+        assert!(translated.body.get("instructions").is_none());
     }
 }
