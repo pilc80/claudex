@@ -935,6 +935,29 @@ mod tests {
     }
 
     #[test]
+    fn test_edit_function_call_argument_deltas_still_stream_and_preserve_pages() {
+        let mut state = ResponsesStreamState::new(ToolNameMap::new());
+        state.process_line(
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_edit","name":"Edit","arguments":"","status":"in_progress"}}"#,
+        );
+        let first = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.delta","delta":"{\"file_path\":\"/tmp/a.md\","}"#,
+        );
+        let second = state.process_line(
+            r#"data: {"type":"response.function_call_arguments.delta","delta":"\"old_string\":\"a\",\"new_string\":\"b\",\"pages\":\"\"}"}"#,
+        );
+        let output = first
+            .into_iter()
+            .chain(second)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(output.contains("input_json_delta"));
+        assert!(output.contains("old_string"));
+        assert!(output.contains("new_string"));
+        assert!(output.contains("pages"));
+    }
+
+    #[test]
     fn test_completed_extracts_usage() {
         let mut state = ResponsesStreamState::new(ToolNameMap::new());
         state.process_line(

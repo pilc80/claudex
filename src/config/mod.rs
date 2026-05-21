@@ -1,4 +1,5 @@
 pub mod cmd;
+pub mod image_mcp_doctor;
 pub mod profile;
 
 use std::collections::HashMap;

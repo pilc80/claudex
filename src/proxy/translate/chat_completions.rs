@@ -839,6 +839,33 @@ mod tests {
     }
 
     #[test]
+    fn test_edit_tool_call_response_preserves_pages_field() {
+        let resp = json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call_edit",
+                        "type": "function",
+                        "function": {
+                            "name": "Edit",
+                            "arguments": "{\"file_path\":\"/tmp/a.md\",\"old_string\":\"a\",\"new_string\":\"b\",\"pages\":\"\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {}
+        });
+        let result = openai_to_anthropic(&resp, &empty_map()).unwrap();
+        let input = &result["content"][0]["input"];
+        assert_eq!(result["content"][0]["name"], "Edit");
+        assert_eq!(input["file_path"], "/tmp/a.md");
+        assert_eq!(input["old_string"], "a");
+        assert_eq!(input["new_string"], "b");
+        assert_eq!(input["pages"], "");
+    }
+
+    #[test]
     fn test_read_pdf_tool_call_response_keeps_pages() {
         let resp = json!({
             "choices": [{

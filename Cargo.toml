@@ -1,6 +1,6 @@
 [package]
 name = "claudex"
-version = "0.9.37"
+version = "0.9.38"
 edition = "2021"
 autobins = false
 description = "ChatGPT/Codex OAuth for Claude Code without an API key"
@@ -17,6 +17,10 @@ path = "src/bin/claudex.rs"
 [[bin]]
 name = "claudex-config"
 path = "src/bin/claudex-config.rs"
+
+[[bin]]
+name = "claudex-image-mcp"
+path = "src/bin/claudex-image-mcp.rs"
 
 [dependencies]
 # CLI

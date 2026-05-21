@@ -525,6 +525,49 @@ mod tests {
     }
 
     #[test]
+    fn test_edit_stream_preserves_pages_field_and_streams_deltas() {
+        let mut state = StreamState::new(std::collections::HashMap::new());
+        let start = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "id": "call_edit",
+                            "function": {"name": "Edit", "arguments": "{\"file_path\":\"/tmp/a.md\","}
+                        }]
+                    }
+                }]
+            })
+        );
+        let delta = format!(
+            "data: {}",
+            json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{"function": {"arguments": "\"old_string\":\"a\",\"new_string\":\"b\",\"pages\":\"\"}"}}]
+                    }
+                }]
+            })
+        );
+        let done = format!(
+            "data: {}",
+            json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]})
+        );
+
+        let mut output = Vec::new();
+        output.extend(state.process_openai_line(&start).unwrap());
+        output.extend(state.process_openai_line(&delta).unwrap_or_default());
+        output.extend(state.process_openai_line(&done).unwrap());
+        let rendered = output.join("\n");
+        assert!(rendered.contains("Edit"));
+        assert!(rendered.contains("input_json_delta"));
+        assert!(rendered.contains("old_string"));
+        assert!(rendered.contains("new_string"));
+        assert!(rendered.contains("pages"));
+    }
+
+    #[test]
     fn test_read_stream_strips_invalid_pages() {
         let mut state = StreamState::new(std::collections::HashMap::new());
         let start = format!(
