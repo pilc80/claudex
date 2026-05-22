@@ -18,10 +18,6 @@ path = "src/bin/claudex.rs"
 name = "claudex-config"
 path = "src/bin/claudex-config.rs"
 
-[[bin]]
-name = "claudex-image-mcp"
-path = "src/bin/claudex-image-mcp.rs"
-
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }

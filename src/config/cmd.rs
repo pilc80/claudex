@@ -3,7 +3,6 @@ use std::io::IsTerminal;
 use anyhow::{Context, Result};
 
 use crate::cli::ConfigAction;
-use crate::config::image_mcp_doctor::ImageMcpInstallStatus;
 use crate::oauth::{AuthType, OAuthProvider, OAuthToken};
 
 use super::ClaudexConfig;
@@ -222,12 +221,6 @@ async fn build_doctor_report(config: &ClaudexConfig, connectivity: bool) -> Doct
         ));
     }
 
-    add_image_mcp_doctor_status(
-        crate::image_mcp::DEFAULT_PROFILE,
-        &mut warnings,
-        &mut actions,
-    );
-
     match crate::process::daemon::read_pid() {
         Ok(Some(pid)) => match crate::process::daemon::is_proxy_running() {
             Ok(true) => actions.push(format!("proxy daemon is running with PID {pid}")),
@@ -328,47 +321,6 @@ fn print_oauth_source_notice(message: &str) {
     }
 }
 
-fn add_image_mcp_doctor_status(
-    profile: &str,
-    warnings: &mut Vec<String>,
-    actions: &mut Vec<String>,
-) {
-    match super::image_mcp_doctor::current_image_mcp_status(profile) {
-        Ok(ImageMcpInstallStatus::Current) => actions.push(format!(
-            "{} MCP is installed for profile '{profile}'",
-            crate::image_mcp::SERVER_NAME
-        )),
-        Ok(ImageMcpInstallStatus::Missing) => {
-            warnings.push(format!(
-                "{} MCP is not installed",
-                crate::image_mcp::SERVER_NAME
-            ));
-            actions.push(format!(
-                "run `claudex-config config doctor --fix --profile {profile}` to install {} MCP",
-                crate::image_mcp::SERVER_NAME
-            ));
-        }
-        Ok(ImageMcpInstallStatus::Stale(reason)) => {
-            warnings.push(format!(
-                "{} MCP install is stale: {reason}",
-                crate::image_mcp::SERVER_NAME
-            ));
-            actions.push(format!(
-                "run `claudex-config config doctor --fix --profile {profile}` to update {} MCP",
-                crate::image_mcp::SERVER_NAME
-            ));
-        }
-        Ok(ImageMcpInstallStatus::Conflict) => warnings.push(format!(
-            "{} MCP entry exists but is not managed by Claudex; leaving it unchanged",
-            crate::image_mcp::SERVER_NAME
-        )),
-        Err(e) => warnings.push(format!(
-            "could not inspect {} MCP install: {e}",
-            crate::image_mcp::SERVER_NAME
-        )),
-    }
-}
-
 fn print_doctor_report(config: &ClaudexConfig, report: &DoctorReport) {
     println!("Claudex doctor");
     println!();
@@ -431,28 +383,6 @@ async fn offer_doctor_fix(
             crate::oauth::providers::login(config, "chatgpt", profile, false, false, None).await?;
         }
         return Ok(());
-    }
-
-    let mcp_needs_fix = report.actions.iter().any(|action| {
-        action.contains("claudex-config config doctor --fix")
-            && action.contains(crate::image_mcp::SERVER_NAME)
-    });
-    if mcp_needs_fix {
-        match super::image_mcp_doctor::install_image_mcp_server(profile)? {
-            ImageMcpInstallStatus::Missing => println!(
-                "Installed {} MCP for profile '{profile}'.",
-                crate::image_mcp::SERVER_NAME
-            ),
-            ImageMcpInstallStatus::Stale(_) => println!(
-                "Updated {} MCP for profile '{profile}'.",
-                crate::image_mcp::SERVER_NAME
-            ),
-            ImageMcpInstallStatus::Current => {}
-            ImageMcpInstallStatus::Conflict => println!(
-                "Skipped {} MCP because an unmanaged entry already exists.",
-                crate::image_mcp::SERVER_NAME
-            ),
-        }
     }
 
     let needs_reauth = report

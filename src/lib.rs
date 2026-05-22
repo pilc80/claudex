@@ -5,7 +5,6 @@
 mod cli;
 mod config;
 mod context;
-pub mod image_mcp;
 mod oauth;
 mod process;
 mod proxy;
