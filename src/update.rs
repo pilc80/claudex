@@ -7,6 +7,10 @@ const BIN_NAME: &str = "claudex";
 /// Check if a newer version is available on GitHub Releases.
 /// Returns Some(version) if newer, None if up-to-date.
 pub async fn check_update() -> Result<Option<String>> {
+    tokio::task::spawn_blocking(check_update_blocking).await?
+}
+
+fn check_update_blocking() -> Result<Option<String>> {
     let current = env!("CARGO_PKG_VERSION");
 
     let updater = self_update::backends::github::Update::configure()

@@ -72,7 +72,7 @@ function Test-InstallerTempSource {
     $tempRoot = Resolve-FullPath ([IO.Path]::GetTempPath())
     $fullPath = Resolve-FullPath $Path
     return $fullPath.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and
-        ((Split-Path -Leaf $fullPath) -like "claudex-*.exe")
+        ((Split-Path -Leaf $fullPath) -like "claudex-*")
 }
 
 function Invoke-InstallerRestMethod {
@@ -259,13 +259,19 @@ function Install-FromRelease {
         Verify-Checksum $archive $checksum
         Expand-Archive -LiteralPath $archive -DestinationPath $tmp -Force
         $source = Join-Path $tmp "claudex.exe"
+        $configSource = Join-Path $tmp "claudex-config.exe"
         if (-not (Test-Path $source)) {
             throw "Archive did not contain claudex.exe"
         }
+        if (-not (Test-Path $configSource)) {
+            throw "Archive did not contain claudex-config.exe"
+        }
 
-        $stableSource = Join-Path ([IO.Path]::GetTempPath()) ("claudex-" + [Guid]::NewGuid() + ".exe")
-        Copy-Item -LiteralPath $source -Destination $stableSource -Force
-        return $stableSource
+        $stableRoot = Join-Path ([IO.Path]::GetTempPath()) ("claudex-" + [Guid]::NewGuid())
+        New-Item -ItemType Directory -Path $stableRoot | Out-Null
+        Copy-Item -LiteralPath $source -Destination (Join-Path $stableRoot "claudex.exe") -Force
+        Copy-Item -LiteralPath $configSource -Destination (Join-Path $stableRoot "claudex-config.exe") -Force
+        return $stableRoot
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -279,7 +285,7 @@ function Install-FromSource {
     $configSource = Join-Path $HOME ".cargo\bin\claudex-config.exe"
     if ($DryRun) {
         Write-Host "Dry run: would run cargo install --git https://github.com/$Repo --force"
-        return $source
+        return (Split-Path -Parent $source)
     }
     if (Test-Path $configSource) {
         Maybe-StopRunningProxy $configSource
@@ -290,7 +296,95 @@ function Install-FromSource {
     if (-not (Test-Path $source)) {
         throw "cargo install finished but $source was not found"
     }
-    return $source
+    if (-not (Test-Path $configSource)) {
+        throw "cargo install finished but $configSource was not found"
+    }
+    return (Split-Path -Parent $source)
+}
+
+function Test-ClaudexProcessRunning {
+    param([string]$InstallDir)
+    $fullInstallDir = Resolve-FullPath $InstallDir
+    $currentPid = $PID
+    $processes = Get-CimInstance Win32_Process -Filter "name = 'claudex.exe' or name = 'claudex-config.exe'" -ErrorAction SilentlyContinue
+    foreach ($process in @($processes)) {
+        if ($process.ProcessId -eq $currentPid) {
+            continue
+        }
+        if (-not $process.ExecutablePath) {
+            return $true
+        }
+        $exePath = Resolve-FullPath $process.ExecutablePath
+        if ($exePath.StartsWith($fullInstallDir, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-ClaudexShimInstall {
+    param([string]$InstallDir)
+    return (Test-Path (Join-Path $InstallDir "latest.txt")) -and (Test-Path (Join-Path $InstallDir "versions"))
+}
+
+function Assert-NoLegacyClaudexRunning {
+    param([string]$InstallDir)
+    if ((Test-ClaudexShimInstall $InstallDir) -or -not (Test-ClaudexProcessRunning $InstallDir)) {
+        return
+    }
+    throw "Close all Claudex sessions, then rerun installer/update. Existing claudex.exe must be replaced once with the stable shim."
+}
+
+function New-ClaudexShimInstall {
+    param([string]$InstallDir, [string]$Source, [string]$ConfigSource)
+
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    Assert-NoLegacyClaudexRunning $InstallDir
+
+    $versionOutput = (& $ConfigSource --version) -join "`n"
+    if ($global:LASTEXITCODE -ne 0) {
+        throw "staged claudex-config --version failed with exit code $global:LASTEXITCODE"
+    }
+    $version = ($versionOutput -replace '^claudex-config\s+', '').Trim()
+    if (-not $version) {
+        throw "Could not determine staged Claudex version"
+    }
+
+    $versionDir = Join-Path (Join-Path $InstallDir "versions") $version
+    New-Item -ItemType Directory -Path $versionDir -Force | Out-Null
+    Copy-Item -LiteralPath $Source -Destination (Join-Path $versionDir "claudex-real.exe") -Force
+    Copy-Item -LiteralPath $ConfigSource -Destination (Join-Path $versionDir "claudex-config-real.exe") -Force
+
+    $launcherDest = Join-Path $InstallDir "claudex.exe"
+    $configLauncherDest = Join-Path $InstallDir "claudex-config.exe"
+    if (-not (Test-ClaudexShimInstall $InstallDir)) {
+        Backup-Existing $launcherDest
+        Backup-Existing $configLauncherDest
+        Copy-Item -LiteralPath $Source -Destination $launcherDest -Force
+        Copy-Item -LiteralPath $Source -Destination $configLauncherDest -Force
+    }
+    Set-Content -LiteralPath (Join-Path $InstallDir "latest.txt") -Value $version
+    Remove-OldClaudexVersions $InstallDir $version
+}
+
+function Remove-OldClaudexVersions {
+    param([string]$InstallDir, [string]$LatestVersion)
+    $versionsDir = Join-Path $InstallDir "versions"
+    if (-not (Test-Path $versionsDir)) {
+        return
+    }
+    $dirs = Get-ChildItem -LiteralPath $versionsDir -Directory | Sort-Object Name -Descending
+    $keep = @($LatestVersion)
+    foreach ($dir in $dirs) {
+        if ($keep.Count -lt 2 -and $dir.Name -ne $LatestVersion) {
+            $keep += $dir.Name
+            continue
+        }
+        if ($keep -contains $dir.Name) {
+            continue
+        }
+        Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Deploy-Binary {
@@ -304,30 +398,21 @@ function Deploy-Binary {
         return $dest
     }
 
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    $sourceBin = Join-Path $source "claudex.exe"
+    $configSourceBin = Join-Path $source "claudex-config.exe"
+    if (-not (Test-Path $sourceBin)) {
+        throw "Install source did not contain claudex.exe: $sourceBin"
+    }
+    if (-not (Test-Path $configSourceBin)) {
+        throw "Install source did not contain claudex-config.exe: $configSourceBin"
+    }
+
     if (Test-Path $configDest) {
         Maybe-StopRunningProxy $configDest
     } else {
         Maybe-StopRunningProxy $dest
     }
-    if ((Test-Path $dest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $dest))) {
-        Write-Host "Skipping copy because source and destination are the same file: $dest"
-    } else {
-        $stagingDest = Join-Path $InstallDir (".claudex.new." + [Guid]::NewGuid() + ".exe")
-        Copy-Item -LiteralPath $source -Destination $stagingDest -Force
-        Invoke-Native "staged claudex --version" $stagingDest @("--version")
-        Backup-Existing $dest
-        Move-Item -LiteralPath $stagingDest -Destination $dest -Force
-    }
-    if ((Test-Path $configDest) -and ((Resolve-FullPath $source) -eq (Resolve-FullPath $configDest))) {
-        Write-Host "Skipping copy because source and destination are the same file: $configDest"
-    } else {
-        $stagingConfigDest = Join-Path $InstallDir (".claudex-config.new." + [Guid]::NewGuid() + ".exe")
-        Copy-Item -LiteralPath $source -Destination $stagingConfigDest -Force
-        Invoke-Native "staged claudex-config --version" $stagingConfigDest @("--version")
-        Backup-Existing $configDest
-        Move-Item -LiteralPath $stagingConfigDest -Destination $configDest -Force
-    }
+    New-ClaudexShimInstall $InstallDir $sourceBin $configSourceBin
     Add-UserPath $InstallDir
 
     Write-Host ""
@@ -403,6 +488,6 @@ try {
     Maybe-RunConfigDoctor $installed
 } finally {
     if (Test-InstallerTempSource $source) {
-        Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

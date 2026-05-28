@@ -152,7 +152,10 @@ irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex
 The installer downloads the latest release assets from `pilc80/claudex`, verifies
 SHA256 checksums from the release manifest or `.sha256` files, installs both
 `claudex` and `claudex-config`, checks that the latest version is the one found
-in `PATH`, and can optionally set up a ChatGPT/Codex OAuth profile. If a running
+in `PATH`, and can optionally set up a ChatGPT/Codex OAuth profile. On Windows,
+the installer uses stable `claudex.exe` and `claudex-config.exe` shims with
+versioned real binaries under `versions/`; the first migration refuses to replace
+a legacy running `.exe` and asks you to close all Claudex sessions. If a running
 proxy still uses the old binary, the installer can stop it or prints the exact
 restart commands.
 
@@ -227,13 +230,19 @@ claudex-config
 This keeps `claudex` close to `claude` at the launcher layer: flags such as
 `claudex --resume <session-id>` are forwarded to Claude Code instead of being
 claimed by the management CLI. Claudex still adds WebSearch guardrails because
-Claude Code WebSearch is not supported through the proxy: it disables
-`WebSearch`, allows `WebFetch`, and appends a short web-research policy prompt.
-Management stays in `claudex-config`; obsolete side commands such as the old
-dashboard, self-update command, and fake `proxy start --daemon` path are
-intentionally not part of the fork CLI. The previous Claudex management behavior
-remains available through `claudex-config`, including profiles, proxy control,
-OAuth, configuration sets, and `claudex-config run <profile>`.
+Claude Code WebSearch is not supported through the proxy: it detects supported
+Claude Code flags, disables `WebSearch`, allows `WebFetch`, and appends a short
+web-research policy prompt when those flags are available. Management stays in
+`claudex-config`; obsolete side commands such as the old dashboard, self-update
+command, and fake `proxy start --daemon` path are intentionally not part of the
+fork CLI. The previous Claudex management behavior remains available through
+`claudex-config`, including profiles, proxy control, OAuth, configuration sets,
+and `claudex-config run <profile>`.
+
+On interactive startup, Claudex checks GitHub releases at most once every three
+hours before starting Claude. If a newer release is available, it can print the
+platform-specific installer command; if the check fails or times out, startup
+continues.
 
 Normal launch options come from environment variables:
 

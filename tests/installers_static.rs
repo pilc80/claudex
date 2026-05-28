@@ -130,18 +130,18 @@ fn windows_installer_falls_back_to_source_then_deploys_same_path() {
 }
 
 #[test]
-fn windows_installer_stops_running_proxy_before_overwrite() {
+fn windows_installer_stops_running_proxy_before_versioned_deploy() {
     let script = install_ps1();
     let stop_pos = script
         .find("Maybe-StopRunningProxy $dest")
         .expect("installer should check running proxy before deploy");
-    let copy_pos = script
-        .find("Copy-Item -LiteralPath $source -Destination $stagingDest -Force")
-        .expect("installer should copy extracted binary into staging before deploy");
+    let deploy_pos = script
+        .find("New-ClaudexShimInstall $InstallDir $sourceBin $configSourceBin")
+        .expect("installer should deploy through the shim layout");
 
     assert!(
-        stop_pos < copy_pos,
-        "running proxy check must happen before overwriting claudex.exe"
+        stop_pos < deploy_pos,
+        "running proxy check must happen before installing versioned binaries"
     );
 }
 
@@ -168,28 +168,57 @@ fn windows_installer_validates_repo_and_avoids_noninteractive_prompts() {
 }
 
 #[test]
-fn windows_installer_handles_same_file_deploy_and_temp_cleanup() {
+fn windows_installer_handles_temp_source_cleanup() {
     let script = install_ps1();
 
     assert!(script.contains("function Resolve-FullPath"));
-    assert!(script.contains("Skipping copy because source and destination are the same file"));
     assert!(script.contains("function Test-InstallerTempSource"));
     assert!(script.contains("finally"));
-    assert!(
-        script.contains("Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue")
-    );
+    assert!(script.contains(
+        "Remove-Item -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue"
+    ));
 }
 
 #[test]
-fn windows_installer_stages_new_binary_before_replacing_existing_one() {
+fn windows_installer_stages_real_binaries_before_switching_latest() {
     let script = install_ps1();
-    assert!(script.contains(".claudex.new."));
-    assert!(script.contains("staged claudex --version"));
-    assert!(script.contains("Move-Item -LiteralPath $stagingDest -Destination $dest -Force"));
-    assert!(script.contains(".claudex-config.new."));
-    assert!(script.contains("staged claudex-config --version"));
-    assert!(script
-        .contains("Move-Item -LiteralPath $stagingConfigDest -Destination $configDest -Force"));
+    assert!(script.contains("Join-Path $versionDir \"claudex-real.exe\""));
+    assert!(script.contains("Join-Path $versionDir \"claudex-config-real.exe\""));
+    assert!(script.contains("Backup-Existing $launcherDest"));
+    assert!(script.contains("Copy-Item -LiteralPath $Source -Destination $launcherDest -Force"));
+    assert!(
+        script.contains("Copy-Item -LiteralPath $Source -Destination $configLauncherDest -Force")
+    );
+    assert!(script.contains(
+        "Set-Content -LiteralPath (Join-Path $InstallDir \"latest.txt\") -Value $version"
+    ));
+    assert!(script.contains("Remove-OldClaudexVersions $InstallDir $version"));
+}
+
+#[test]
+fn windows_installer_uses_versioned_shim_layout() {
+    let script = install_ps1();
+
+    assert!(script.contains("function Test-ClaudexProcessRunning"));
+    assert!(script.contains("function Test-ClaudexShimInstall"));
+    assert!(script.contains("function Assert-NoLegacyClaudexRunning"));
+    assert!(script.contains("function New-ClaudexShimInstall"));
+    assert!(script.contains("versions"));
+    assert!(script.contains("latest.txt"));
+    assert!(script.contains("claudex-real.exe"));
+    assert!(script.contains("claudex-config-real.exe"));
+    assert!(script.contains("Close all Claudex sessions, then rerun installer/update"));
+}
+
+#[test]
+fn rust_binary_supports_windows_shim_dispatch_contract() {
+    let source = fs::read_to_string("src/lib.rs").expect("src/lib.rs should exist");
+
+    assert!(source.contains("CLAUDEX_EXECUTABLE_MODE"));
+    assert!(source.contains("CLAUDEX_SHIM_BYPASS"));
+    assert!(source.contains("run_windows_shim_if_needed"));
+    assert!(source.contains("claudex-real.exe"));
+    assert!(source.contains("claudex-config-real.exe"));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 
@@ -30,66 +30,19 @@ pub fn launch_claude(
     let is_noninteractive = extra_args.iter().any(|arg| arg == "-p" || arg == "--print")
         || extra_args.first().is_some_and(|arg| !arg.starts_with('-'));
 
-    let mut cmd = Command::new(&config.claude_binary);
-
-    // 不设 CLAUDE_CONFIG_DIR — 使用全局 ~/.claude，保留用户已有认证和设置。
-    // Profile 差异化完全通过环境变量实现。
-
     let is_claude_subscription = profile.auth_type == AuthType::OAuth
         && profile.oauth_provider == Some(OAuthProvider::Claude);
-
-    if is_claude_subscription {
-        // Claude subscription：Claude Code 直接使用自身 OAuth
-        // 不设 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY
-        if visible_model != profile.default_model {
-            cmd.env("ANTHROPIC_MODEL", &visible_model);
-        }
-    } else {
-        // 标准代理流程（Gateway 模式）
-        // 用 ANTHROPIC_AUTH_TOKEN（发 Authorization: Bearer header）而非 ANTHROPIC_API_KEY（发 X-Api-Key header）
-        // 避免与 claude.ai OAuth token 产生 "Auth conflict"
-        cmd.env("ANTHROPIC_BASE_URL", &proxy_base)
-            .env("ANTHROPIC_AUTH_TOKEN", "claudex-passthrough")
-            .env("ANTHROPIC_MODEL", &visible_model);
-    }
-
-    if !profile.custom_headers.is_empty() {
-        let headers: Vec<String> = profile
-            .custom_headers
-            .iter()
-            .map(|(k, v)| format!("{k}:{v}"))
-            .collect();
-        cmd.env("ANTHROPIC_CUSTOM_HEADERS", headers.join(","));
-    }
-
-    // 模型 slot 映射 → Claude Code 的 /model 切换
-    if let Some(ref h) = profile.models.haiku {
-        cmd.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", h);
-    }
-    if let Some(ref s) = profile.models.sonnet {
-        cmd.env("ANTHROPIC_DEFAULT_SONNET_MODEL", s);
-    }
-    if let Some(ref o) = profile.models.opus {
-        cmd.env("ANTHROPIC_DEFAULT_OPUS_MODEL", o);
-    }
-
-    if is_openai_responses_oauth {
-        if let Some(window) = openai_model_auto_compact_window(&model) {
-            cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
-        }
-    }
-
-    for (k, v) in &profile.extra_env {
-        cmd.env(k, v);
-    }
-
-    // 自动禁用 Chrome 集成（除非用户显式传了 --chrome）
-    if !extra_args.iter().any(|a| a == "--chrome") {
-        cmd.arg("--no-chrome");
-    }
-
-    let claude_args = claudex_websearch_guard_args(extra_args);
-    cmd.args(&claude_args);
+    let guard_support = claude_guard_support(&config.claude_binary);
+    let command_context = ClaudeCommandContext {
+        config,
+        profile,
+        proxy_base: &proxy_base,
+        visible_model: &visible_model,
+        is_claude_subscription,
+        is_openai_responses_oauth,
+        extra_args,
+    };
+    let mut cmd = build_claude_command(&command_context, Some(guard_support));
 
     tracing::info!(
         profile = %profile.name,
@@ -115,30 +68,25 @@ pub fn launch_claude(
             resume_session_id = terminal::pty::spawn_with_pty(cmd, cwd)?;
         }
     } else {
-        let mut child = cmd.spawn().context("failed to execute claude binary")?;
+        let stderr_output = if guard_support.has_any() && is_noninteractive {
+            cmd.stderr(Stdio::piped());
+            Some(run_claude_child(cmd, true)?)
+        } else {
+            run_claude_child(cmd, false)?;
+            None
+        };
 
-        // 转发 SIGINT/SIGTERM 到子进程
-        #[cfg(unix)]
-        unsafe {
-            libc::signal(libc::SIGINT, libc::SIG_IGN);
-        }
-
-        let status = child.wait().context("failed to wait for claude")?;
-
-        #[cfg(unix)]
-        unsafe {
-            libc::signal(libc::SIGINT, libc::SIG_DFL);
-        }
-
-        if !status.success() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::ExitStatusExt;
-                if status.signal().is_some() {
-                    std::process::exit(128 + status.signal().unwrap());
-                }
+        if let Some(stderr) = stderr_output {
+            if is_unknown_guard_arg_error(&stderr) {
+                eprintln!(
+                    "Claudex warning: Claude Code rejected WebSearch guard args; retrying without them."
+                );
+                let retry = build_claude_command(&command_context, None);
+                run_claude_child(retry, false)?;
+            } else {
+                eprint!("{stderr}");
+                bail!("claude exited with an error");
             }
-            bail!("claude exited with status: {}", status);
         }
     }
 
@@ -156,21 +104,203 @@ fn print_claudex_resume_hint(profile_name: &str, session_id: &str, extra_args: &
     eprintln!("\nResume this session with claudex:\n  {hint}");
 }
 
-fn claudex_websearch_guard_args(extra_args: &[String]) -> Vec<String> {
+struct ClaudeCommandContext<'a> {
+    config: &'a ClaudexConfig,
+    profile: &'a ProfileConfig,
+    proxy_base: &'a str,
+    visible_model: &'a str,
+    is_claude_subscription: bool,
+    is_openai_responses_oauth: bool,
+    extra_args: &'a [String],
+}
+
+fn build_claude_command(
+    ctx: &ClaudeCommandContext<'_>,
+    guard_support: Option<ClaudeGuardSupport>,
+) -> Command {
+    let mut cmd = Command::new(&ctx.config.claude_binary);
+
+    if ctx.is_claude_subscription {
+        if ctx.visible_model != ctx.profile.default_model {
+            cmd.env("ANTHROPIC_MODEL", ctx.visible_model);
+        }
+    } else {
+        cmd.env("ANTHROPIC_BASE_URL", ctx.proxy_base)
+            .env("ANTHROPIC_AUTH_TOKEN", "claudex-passthrough")
+            .env("ANTHROPIC_MODEL", ctx.visible_model);
+    }
+
+    if !ctx.profile.custom_headers.is_empty() {
+        let headers: Vec<String> = ctx
+            .profile
+            .custom_headers
+            .iter()
+            .map(|(k, v)| format!("{k}:{v}"))
+            .collect();
+        cmd.env("ANTHROPIC_CUSTOM_HEADERS", headers.join(","));
+    }
+
+    if let Some(ref h) = ctx.profile.models.haiku {
+        cmd.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", h);
+    }
+    if let Some(ref s) = ctx.profile.models.sonnet {
+        cmd.env("ANTHROPIC_DEFAULT_SONNET_MODEL", s);
+    }
+    if let Some(ref o) = ctx.profile.models.opus {
+        cmd.env("ANTHROPIC_DEFAULT_OPUS_MODEL", o);
+    }
+
+    if ctx.is_openai_responses_oauth {
+        if let Some(window) = openai_model_auto_compact_window(ctx.visible_model) {
+            cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
+        }
+    }
+
+    for (k, v) in &ctx.profile.extra_env {
+        cmd.env(k, v);
+    }
+
+    if !ctx.extra_args.iter().any(|a| a == "--chrome") {
+        cmd.arg("--no-chrome");
+    }
+
+    let claude_args = match guard_support {
+        Some(support) => claudex_websearch_guard_args(ctx.extra_args, support),
+        None => ctx.extra_args.to_vec(),
+    };
+    cmd.args(&claude_args);
+    cmd
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClaudeGuardSupport {
+    allowed_tools: Option<&'static str>,
+    disallowed_tools: Option<&'static str>,
+    append_system_prompt: bool,
+}
+
+impl ClaudeGuardSupport {
+    fn has_any(self) -> bool {
+        self.allowed_tools.is_some() || self.disallowed_tools.is_some() || self.append_system_prompt
+    }
+}
+
+fn claude_guard_support(claude_binary: &str) -> ClaudeGuardSupport {
+    let help = Command::new(claude_binary).arg("--help").output();
+    match help {
+        Ok(output) => parse_claude_guard_support(&String::from_utf8_lossy(&output.stdout)),
+        Err(err) => {
+            eprintln!("Claudex warning: could not inspect Claude Code flags: {err}");
+            ClaudeGuardSupport {
+                allowed_tools: None,
+                disallowed_tools: None,
+                append_system_prompt: false,
+            }
+        }
+    }
+}
+
+fn parse_claude_guard_support(help: &str) -> ClaudeGuardSupport {
+    ClaudeGuardSupport {
+        allowed_tools: if help.contains("--allowedTools") {
+            Some("--allowedTools")
+        } else if help.contains("--allowed-tools") {
+            Some("--allowed-tools")
+        } else {
+            None
+        },
+        disallowed_tools: if help.contains("--disallowedTools") {
+            Some("--disallowedTools")
+        } else if help.contains("--disallowed-tools") {
+            Some("--disallowed-tools")
+        } else {
+            None
+        },
+        append_system_prompt: help.contains("--append-system-prompt"),
+    }
+}
+
+fn run_claude_child(mut cmd: Command, capture_stderr: bool) -> Result<String> {
+    if capture_stderr {
+        let output = cmd.output().context("failed to execute claude binary")?;
+        if output.status.success() {
+            return Ok(String::new());
+        }
+        return Ok(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let mut child = cmd.spawn().context("failed to execute claude binary")?;
+
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_IGN);
+    }
+
+    let status = child.wait().context("failed to wait for claude")?;
+
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+    }
+
+    if status.success() {
+        return Ok(String::new());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if status.signal().is_some() {
+            std::process::exit(128 + status.signal().unwrap());
+        }
+    }
+
+    bail!("claude exited with status: {status}")
+}
+
+fn is_unknown_guard_arg_error(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    (lower.contains("unknown") || lower.contains("unexpected") || lower.contains("invalid"))
+        && [
+            "allowedtools",
+            "allowed-tools",
+            "disallowedtools",
+            "disallowed-tools",
+            "append-system-prompt",
+        ]
+        .iter()
+        .any(|flag| lower.contains(flag))
+}
+
+fn claudex_websearch_guard_args(
+    extra_args: &[String],
+    guard_support: ClaudeGuardSupport,
+) -> Vec<String> {
     let mut args = Vec::with_capacity(extra_args.len() + 6);
 
-    if !has_flag_value(extra_args, "--disallowedTools", "WebSearch") {
-        args.push("--disallowedTools".to_string());
-        args.push("WebSearch".to_string());
+    if let Some(flag) = guard_support.disallowed_tools {
+        if !has_flag_value(extra_args, flag, "WebSearch") {
+            args.push(flag.to_string());
+            args.push("WebSearch".to_string());
+        }
     }
 
-    if !has_flag_value(extra_args, "--allowedTools", "WebFetch") {
-        args.push("--allowedTools".to_string());
-        args.push("WebFetch".to_string());
+    if let Some(flag) = guard_support.allowed_tools {
+        if !has_flag_value(extra_args, flag, "WebFetch") {
+            args.push(flag.to_string());
+            args.push("WebFetch".to_string());
+        }
     }
 
-    args.push("--append-system-prompt".to_string());
-    args.push(CLAUDEX_WEBSEARCH_POLICY_PROMPT.to_string());
+    if guard_support.append_system_prompt {
+        args.push("--append-system-prompt".to_string());
+        args.push(CLAUDEX_WEBSEARCH_POLICY_PROMPT.to_string());
+    }
+
+    if !guard_support.has_any() {
+        eprintln!("Claudex warning: Claude Code does not advertise WebSearch guard flags; launching without injected guardrails.");
+    }
+
     args.extend(extra_args.iter().cloned());
     args
 }
@@ -291,7 +421,12 @@ mod tests {
 
     #[test]
     fn claudex_websearch_guard_adds_default_args_before_user_args() {
-        let args = claudex_websearch_guard_args(&["--verbose".to_string()]);
+        let support = ClaudeGuardSupport {
+            allowed_tools: Some("--allowedTools"),
+            disallowed_tools: Some("--disallowedTools"),
+            append_system_prompt: true,
+        };
+        let args = claudex_websearch_guard_args(&["--verbose".to_string()], support);
         assert_eq!(
             args,
             vec![
@@ -308,12 +443,20 @@ mod tests {
 
     #[test]
     fn claudex_websearch_guard_does_not_duplicate_tool_flags() {
-        let args = claudex_websearch_guard_args(&[
-            "--disallowedTools".to_string(),
-            "Bash,WebSearch".to_string(),
-            "--allowedTools".to_string(),
-            "Read, WebFetch".to_string(),
-        ]);
+        let support = ClaudeGuardSupport {
+            allowed_tools: Some("--allowedTools"),
+            disallowed_tools: Some("--disallowedTools"),
+            append_system_prompt: true,
+        };
+        let args = claudex_websearch_guard_args(
+            &[
+                "--disallowedTools".to_string(),
+                "Bash,WebSearch".to_string(),
+                "--allowedTools".to_string(),
+                "Read, WebFetch".to_string(),
+            ],
+            support,
+        );
 
         assert_eq!(
             args,
@@ -326,6 +469,38 @@ mod tests {
                 "Read, WebFetch"
             ]
         );
+    }
+
+    #[test]
+    fn claudex_websearch_guard_uses_kebab_case_flags_when_advertised() {
+        let support = ClaudeGuardSupport {
+            allowed_tools: Some("--allowed-tools"),
+            disallowed_tools: Some("--disallowed-tools"),
+            append_system_prompt: true,
+        };
+        let args = claudex_websearch_guard_args(&[], support);
+        assert_eq!(args[0], "--disallowed-tools");
+        assert_eq!(args[2], "--allowed-tools");
+    }
+
+    #[test]
+    fn parse_claude_guard_support_prefers_camel_case_flags() {
+        let support = parse_claude_guard_support(
+            "--allowedTools, --allowed-tools <tools>\n--disallowedTools <tools>\n--append-system-prompt <prompt>",
+        );
+        assert_eq!(support.allowed_tools, Some("--allowedTools"));
+        assert_eq!(support.disallowed_tools, Some("--disallowedTools"));
+        assert!(support.append_system_prompt);
+    }
+
+    #[test]
+    fn unknown_guard_arg_error_requires_guard_flag_reference() {
+        assert!(is_unknown_guard_arg_error(
+            "error: unknown option '--append-system-prompt'"
+        ));
+        assert!(!is_unknown_guard_arg_error(
+            "error: unknown option '--model'"
+        ));
     }
 
     #[test]

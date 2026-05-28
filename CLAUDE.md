@@ -111,9 +111,19 @@ translation:
 ### Launch Behavior
 
 `src/process/launch.rs` adds Claude Code WebSearch guardrails on every Claudex
-launch: `--disallowedTools WebSearch`, `--allowedTools WebFetch`, and a short
-web-research policy prompt. Keep this documented because WebSearch is not
-supported through Claudex.
+launch: detect supported Claude Code flags, inject `--disallowedTools WebSearch`,
+`--allowedTools WebFetch`, and a short web-research policy prompt when supported,
+and retry noninteractive launches without guard args if Claude rejects them. Keep
+this documented because WebSearch is not supported through Claudex.
+
+`src/lib.rs` checks OAuth token health on interactive ChatGPT/Codex startup and
+warns when the token expires within 3 days. It also checks GitHub releases before
+interactive launches at most once every 3 hours; failures/timeouts must not block
+Claude startup, and startup must print installer instructions rather than trying
+to overwrite the running `claudex` binary. On Windows only, installed
+`claudex.exe` and `claudex-config.exe` are stable shims that dispatch to
+versioned real binaries via `latest.txt`; macOS/Linux keep the existing installer
+layout.
 
 ### Configuration
 

@@ -19,6 +19,8 @@ use clap::Parser;
 use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -27,6 +29,9 @@ use tracing_subscriber::EnvFilter;
 use cli::{AuthAction, Cli, Commands, ProfileAction, ProxyAction, SetsAction};
 use config::{ClaudexConfig, HyperlinksConfig};
 
+const SHIM_MODE_ENV: &str = "CLAUDEX_EXECUTABLE_MODE";
+const SHIM_BYPASS_ENV: &str = "CLAUDEX_SHIM_BYPASS";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExecutableMode {
     Launcher,
@@ -34,7 +39,11 @@ enum ExecutableMode {
 }
 
 pub async fn run_from_argv0() -> Result<()> {
-    run_with_mode(executable_mode_from_arg0(
+    if run_windows_shim_if_needed()? {
+        return Ok(());
+    }
+
+    run_with_mode(executable_mode_from_env_or_arg0(
         std::env::args_os()
             .next()
             .as_deref()
@@ -58,8 +67,18 @@ async fn run_with_mode(mode: ExecutableMode) -> Result<()> {
     }
 }
 
+fn executable_mode_from_env_or_arg0(arg0: impl AsRef<OsStr>) -> ExecutableMode {
+    match std::env::var(SHIM_MODE_ENV).ok().as_deref() {
+        Some("launcher") => return ExecutableMode::Launcher,
+        Some("config") => return ExecutableMode::Config,
+        _ => {}
+    }
+
+    executable_mode_from_arg0(arg0)
+}
+
 fn executable_mode_from_arg0(arg0: impl AsRef<OsStr>) -> ExecutableMode {
-    let path = std::path::Path::new(arg0.as_ref());
+    let path = Path::new(arg0.as_ref());
     let name = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -70,6 +89,57 @@ fn executable_mode_from_arg0(arg0: impl AsRef<OsStr>) -> ExecutableMode {
     } else {
         ExecutableMode::Launcher
     }
+}
+
+fn run_windows_shim_if_needed() -> Result<bool> {
+    if !cfg!(windows) || std::env::var_os(SHIM_BYPASS_ENV).is_some() {
+        return Ok(false);
+    }
+
+    let exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let Some(file_name) = exe.file_name().and_then(|name| name.to_str()) else {
+        return Ok(false);
+    };
+
+    let mode = match file_name.to_ascii_lowercase().as_str() {
+        "claudex.exe" => ExecutableMode::Launcher,
+        "claudex-config.exe" => ExecutableMode::Config,
+        _ => return Ok(false),
+    };
+
+    let Some(target) = windows_shim_target(&exe, mode) else {
+        return Ok(false);
+    };
+
+    let status = Command::new(target)
+        .args(std::env::args_os().skip(1))
+        .env(SHIM_BYPASS_ENV, "1")
+        .env(
+            SHIM_MODE_ENV,
+            match mode {
+                ExecutableMode::Launcher => "launcher",
+                ExecutableMode::Config => "config",
+            },
+        )
+        .status()
+        .context("failed to launch Claudex versioned binary")?;
+
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+fn windows_shim_target(shim_path: &Path, mode: ExecutableMode) -> Option<PathBuf> {
+    let install_dir = shim_path.parent()?;
+    let latest = std::fs::read_to_string(install_dir.join("latest.txt")).ok()?;
+    let version = latest.trim();
+    if version.is_empty() || version.contains(['/', '\\']) {
+        return None;
+    }
+
+    let real_name = match mode {
+        ExecutableMode::Launcher => "claudex-real.exe",
+        ExecutableMode::Config => "claudex-config-real.exe",
+    };
+    Some(install_dir.join("versions").join(version).join(real_name))
 }
 
 async fn run_launcher() -> Result<()> {
@@ -83,6 +153,9 @@ async fn run_launcher() -> Result<()> {
     }
 
     init_logging(&config, true);
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    maybe_check_release_before_startup(&args).await?;
 
     ensure_launcher_proxy(&mut config).await?;
 
@@ -99,7 +172,6 @@ async fn run_launcher() -> Result<()> {
         })?
         .clone();
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
     maybe_reauth_oauth_before_startup(&mut config, &profile, &args).await?;
     let model = std::env::var("CLAUDEX_MODEL").ok();
     process::launch::launch_claude(&config, &profile, model.as_deref(), &args, false)?;
@@ -113,7 +185,91 @@ async fn run_launcher() -> Result<()> {
     Ok(())
 }
 
-const OAUTH_STARTUP_WARNING_DAYS: i64 = 7;
+const OAUTH_STARTUP_WARNING_DAYS: i64 = 3;
+const UPDATE_CHECK_INTERVAL_SECS: i64 = 3 * 60 * 60;
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_millis(1500);
+
+async fn maybe_check_release_before_startup(args: &[String]) -> Result<()> {
+    if !is_interactive_startup(args) || !should_run_update_check(chrono::Utc::now().timestamp())? {
+        return Ok(());
+    }
+
+    eprintln!("Claudex is checking GitHub releases for updates...");
+    let check = tokio::time::timeout(UPDATE_CHECK_TIMEOUT, update::check_update()).await;
+    record_update_check(chrono::Utc::now().timestamp())?;
+
+    let latest = match check {
+        Ok(Ok(Some(version))) => version,
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Err(err)) => {
+            eprintln!("Claudex update check skipped: {err}");
+            return Ok(());
+        }
+        Err(_) => {
+            eprintln!("Claudex update check skipped: timed out");
+            return Ok(());
+        }
+    };
+
+    if prompt_yes_no(
+        &format!("Claudex v{latest} is available. Show update command?"),
+        false,
+    )? {
+        eprintln!("Update command:\n  {}", claudex_update_command());
+    }
+
+    Ok(())
+}
+
+fn claudex_update_command() -> &'static str {
+    if cfg!(windows) {
+        "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex"
+    } else {
+        "curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash"
+    }
+}
+
+fn is_interactive_startup(args: &[String]) -> bool {
+    std::io::stdin().is_terminal()
+        && !args.iter().any(|arg| arg == "-p" || arg == "--print")
+        && args.first().is_none_or(|arg| arg.starts_with('-'))
+}
+
+fn should_run_update_check(now_secs: i64) -> Result<bool> {
+    Ok(update_check_due(read_last_update_check()?, now_secs))
+}
+
+fn update_check_due(last_checked: Option<i64>, now_secs: i64) -> bool {
+    let Some(last_checked) = last_checked else {
+        return true;
+    };
+    now_secs - last_checked >= UPDATE_CHECK_INTERVAL_SECS
+}
+
+fn update_check_state_path() -> Result<PathBuf> {
+    let mut path = ClaudexConfig::config_path()?;
+    path.set_file_name("update-check");
+    path.set_extension("txt");
+    Ok(path)
+}
+
+fn read_last_update_check() -> Result<Option<i64>> {
+    let path = update_check_state_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let value = std::fs::read_to_string(path)?.trim().parse::<i64>().ok();
+    Ok(value)
+}
+
+fn record_update_check(now_secs: i64) -> Result<()> {
+    let path = update_check_state_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, now_secs.to_string())?;
+    Ok(())
+}
 
 async fn maybe_reauth_oauth_before_startup(
     config: &mut ClaudexConfig,
@@ -295,6 +451,7 @@ async fn run_config_cli() -> Result<()> {
             hyperlinks,
             args,
         }) => {
+            maybe_check_release_before_startup(&args).await?;
             ensure_launcher_proxy(&mut config).await?;
 
             let profile = config
@@ -303,6 +460,7 @@ async fn run_config_cli() -> Result<()> {
                 .clone();
 
             maybe_reauth_oauth_before_startup(&mut config, &profile, &args).await?;
+            maybe_check_release_before_startup(&args).await?;
             process::launch::launch_claude(&config, &profile, model.as_deref(), &args, hyperlinks)?;
 
             // Claude 退出后，输出日志文件路径
@@ -639,20 +797,96 @@ mod tests {
     }
 
     #[test]
-    fn oauth_expiry_status_warns_within_seven_days() {
+    fn oauth_expiry_status_warns_within_three_days() {
         let now = 1_000_000;
-        let six_days = 6 * 24 * 60 * 60 * 1000;
+        let two_days = 2 * 24 * 60 * 60 * 1000;
         assert_eq!(
-            oauth_expiry_status(now + six_days, now),
-            Some(StartupOAuthHealth::Expiring { days: 6 })
+            oauth_expiry_status(now + two_days, now),
+            Some(StartupOAuthHealth::Expiring { days: 2 })
         );
     }
 
     #[test]
     fn oauth_expiry_status_ignores_tokens_after_warning_window() {
         let now = 1_000_000;
-        let eight_days = 8 * 24 * 60 * 60 * 1000;
-        assert_eq!(oauth_expiry_status(now + eight_days, now), None);
+        let four_days = 4 * 24 * 60 * 60 * 1000;
+        assert_eq!(oauth_expiry_status(now + four_days, now), None);
+    }
+
+    #[test]
+    fn update_check_runs_after_three_hour_cache_window() {
+        let now = 10_000;
+        assert!(update_check_due(None, now));
+        assert!(!update_check_due(
+            Some(now - UPDATE_CHECK_INTERVAL_SECS + 1),
+            now
+        ));
+        assert!(update_check_due(
+            Some(now - UPDATE_CHECK_INTERVAL_SECS),
+            now
+        ));
+    }
+
+    #[test]
+    fn noninteractive_startup_args_skip_release_check() {
+        assert!(!is_interactive_startup(&["-p".to_string()]));
+        assert!(!is_interactive_startup(&["--print".to_string()]));
+        assert!(!is_interactive_startup(&["hello".to_string()]));
+    }
+
+    #[test]
+    fn executable_mode_env_overrides_argv0_for_shims() {
+        std::env::set_var(SHIM_MODE_ENV, "config");
+        assert_eq!(
+            executable_mode_from_env_or_arg0("claudex-real.exe"),
+            ExecutableMode::Config
+        );
+
+        std::env::set_var(SHIM_MODE_ENV, "launcher");
+        assert_eq!(
+            executable_mode_from_env_or_arg0("claudex-config-real.exe"),
+            ExecutableMode::Launcher
+        );
+        std::env::remove_var(SHIM_MODE_ENV);
+    }
+
+    #[test]
+    fn windows_shim_target_uses_latest_metadata_and_mode() {
+        let root = std::env::temp_dir().join(format!("claudex-shim-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("latest.txt"), "0.9.41\n").unwrap();
+
+        assert_eq!(
+            windows_shim_target(&root.join("claudex.exe"), ExecutableMode::Launcher).unwrap(),
+            root.join("versions")
+                .join("0.9.41")
+                .join("claudex-real.exe")
+        );
+        assert_eq!(
+            windows_shim_target(&root.join("claudex-config.exe"), ExecutableMode::Config).unwrap(),
+            root.join("versions")
+                .join("0.9.41")
+                .join("claudex-config-real.exe")
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn claudex_update_command_uses_platform_installer() {
+        let command = claudex_update_command();
+        if cfg!(windows) {
+            assert_eq!(
+                command,
+                "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex"
+            );
+        } else {
+            assert_eq!(
+                command,
+                "curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash"
+            );
+        }
     }
 
     #[test]
