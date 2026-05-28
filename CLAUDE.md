@@ -108,6 +108,13 @@ translation:
   - Other providers: use provider-specific files or environment variables; the
     proxy loads and refreshes them where supported.
 
+### Launch Behavior
+
+`src/process/launch.rs` adds Claude Code WebSearch guardrails on every Claudex
+launch: `--disallowedTools WebSearch`, `--allowedTools WebFetch`, and a short
+web-research policy prompt. Keep this documented because WebSearch is not
+supported through Claudex.
+
 ### Configuration
 
 The config file is at `~/.config/claudex/config.toml`. See

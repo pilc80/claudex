@@ -6,6 +6,8 @@ use crate::config::{ClaudexConfig, HyperlinksConfig, ProfileConfig};
 use crate::oauth::{AuthType, OAuthProvider};
 use crate::terminal;
 
+const CLAUDEX_WEBSEARCH_POLICY_PROMPT: &str = "Web research: DO NOT use WebSearch through the proxy. For known URLs use WebFetch. For search use GitHub/gh, MCP search, or Bash/curl to a local search provider. Do not delegate web research/search to subagents.";
+
 pub fn launch_claude(
     config: &ClaudexConfig,
     profile: &ProfileConfig,
@@ -86,7 +88,8 @@ pub fn launch_claude(
         cmd.arg("--no-chrome");
     }
 
-    cmd.args(extra_args);
+    let claude_args = claudex_websearch_guard_args(extra_args);
+    cmd.args(&claude_args);
 
     tracing::info!(
         profile = %profile.name,
@@ -151,6 +154,30 @@ pub fn launch_claude(
 fn print_claudex_resume_hint(profile_name: &str, session_id: &str, extra_args: &[String]) {
     let hint = build_resume_hint(profile_name, session_id, extra_args);
     eprintln!("\nResume this session with claudex:\n  {hint}");
+}
+
+fn claudex_websearch_guard_args(extra_args: &[String]) -> Vec<String> {
+    let mut args = Vec::with_capacity(extra_args.len() + 6);
+
+    if !has_flag_value(extra_args, "--disallowedTools", "WebSearch") {
+        args.push("--disallowedTools".to_string());
+        args.push("WebSearch".to_string());
+    }
+
+    if !has_flag_value(extra_args, "--allowedTools", "WebFetch") {
+        args.push("--allowedTools".to_string());
+        args.push("WebFetch".to_string());
+    }
+
+    args.push("--append-system-prompt".to_string());
+    args.push(CLAUDEX_WEBSEARCH_POLICY_PROMPT.to_string());
+    args.extend(extra_args.iter().cloned());
+    args
+}
+
+fn has_flag_value(args: &[String], flag: &str, value: &str) -> bool {
+    args.windows(2)
+        .any(|pair| pair[0] == flag && pair[1].split(',').any(|part| part.trim() == value))
 }
 
 /// 构造 claudex resume 命令字符串（纯函数，便于测试）
@@ -261,6 +288,45 @@ fn should_use_pty(config_hyperlinks: &HyperlinksConfig, cli_override: bool) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claudex_websearch_guard_adds_default_args_before_user_args() {
+        let args = claudex_websearch_guard_args(&["--verbose".to_string()]);
+        assert_eq!(
+            args,
+            vec![
+                "--disallowedTools",
+                "WebSearch",
+                "--allowedTools",
+                "WebFetch",
+                "--append-system-prompt",
+                CLAUDEX_WEBSEARCH_POLICY_PROMPT,
+                "--verbose"
+            ]
+        );
+    }
+
+    #[test]
+    fn claudex_websearch_guard_does_not_duplicate_tool_flags() {
+        let args = claudex_websearch_guard_args(&[
+            "--disallowedTools".to_string(),
+            "Bash,WebSearch".to_string(),
+            "--allowedTools".to_string(),
+            "Read, WebFetch".to_string(),
+        ]);
+
+        assert_eq!(
+            args,
+            vec![
+                "--append-system-prompt",
+                CLAUDEX_WEBSEARCH_POLICY_PROMPT,
+                "--disallowedTools",
+                "Bash,WebSearch",
+                "--allowedTools",
+                "Read, WebFetch"
+            ]
+        );
+    }
 
     #[test]
     fn test_build_resume_hint_no_extra_args() {

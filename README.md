@@ -24,6 +24,7 @@ claudex
 - 🏆 **Correct error translation** — surface OpenAI/Codex failures as actionable Claude Code errors.
 - 🏆 **Setup health checks** — use `claudex-config config doctor` to check config, auth, proxy state, setup, and reauthentication.
 - 🏆 **Local-first privacy** — run locally with explicit routing; OAuth tokens are read from provider-specific local files or environment variables.
+- 🏆 **WebFetch guardrails** — `WebSearch` is disabled for Claude launches because it is not supported through the proxy; known URLs should use `WebFetch`.
 
 ## Why this fork?
 
@@ -32,6 +33,10 @@ fork focuses on preserving full Claude Code workflows when OpenAI Responses/Code
 behaves differently from Anthropic Messages:
 
 - `/compact` works with streamed and non-streamed Responses shapes.
+- Claude launches include `--disallowedTools WebSearch`, `--allowedTools WebFetch`,
+  and a short web-research system prompt because `WebSearch` is not supported
+  through the proxy. Search should use GitHub/gh, MCP search, or Bash/curl to a
+  local search provider; known URLs should use WebFetch.
 - claudex intentionally does not invent cross-protocol auto-compaction. When
   Codex says the context window is full, claudex returns Claude Code's normal
   context-limit prompt so users can run `/compact` or `/clear`.
@@ -210,7 +215,8 @@ This fork intentionally separates the Claude-compatible launcher from setup:
 
 ```text
 claudex
-  Claude-compatible launcher. It passes all arguments to Claude Code unchanged.
+  Claude-compatible launcher. It forwards user arguments to Claude Code while
+  adding Claudex guardrails for unsupported proxy features.
   After a `codex-sub` profile exists, plain `claudex` uses it by default.
 
 claudex-config
@@ -220,12 +226,14 @@ claudex-config
 
 This keeps `claudex` close to `claude` at the launcher layer: flags such as
 `claudex --resume <session-id>` are forwarded to Claude Code instead of being
-claimed by the management CLI. Management stays in `claudex-config`; obsolete
-side commands such as the old dashboard, self-update command, and fake
-`proxy start --daemon` path are intentionally not part of the fork CLI.
-The previous Claudex management behavior remains available through
-`claudex-config`, including profiles, proxy control, OAuth, configuration sets,
-and `claudex-config run <profile>`.
+claimed by the management CLI. Claudex still adds WebSearch guardrails because
+Claude Code WebSearch is not supported through the proxy: it disables
+`WebSearch`, allows `WebFetch`, and appends a short web-research policy prompt.
+Management stays in `claudex-config`; obsolete side commands such as the old
+dashboard, self-update command, and fake `proxy start --daemon` path are
+intentionally not part of the fork CLI. The previous Claudex management behavior
+remains available through `claudex-config`, including profiles, proxy control,
+OAuth, configuration sets, and `claudex-config run <profile>`.
 
 Normal launch options come from environment variables:
 
