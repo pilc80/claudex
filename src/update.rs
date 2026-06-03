@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::process::Command;
 
 const REPO_OWNER: &str = "pilc80";
 const REPO_NAME: &str = "claudex";
@@ -56,7 +57,7 @@ pub async fn self_update() -> Result<()> {
     match newer_version(latest, current)? {
         Some(version) => {
             println!("Claudex v{version} is available.");
-            println!("Run update command:\n  {}", claudex_update_command());
+            run_installer_update()?;
         }
         None => println!("Already up to date (v{current})"),
     }
@@ -64,11 +65,56 @@ pub async fn self_update() -> Result<()> {
     Ok(())
 }
 
-fn claudex_update_command() -> &'static str {
+pub fn run_installer_update() -> Result<()> {
     if cfg!(windows) {
-        "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex"
+        eprintln!(
+            "On Windows, close other Claudex sessions before updating. First legacy-to-shim migration may fail while old claudex.exe is still running."
+        );
+    }
+
+    let (program, args) = installer_command();
+    let status = Command::new(program).args(args).status().with_context(|| {
+        format!(
+            "failed to run Claudex installer command: {}",
+            installer_command_display()
+        )
+    })?;
+
+    if !status.success() {
+        anyhow::bail!("Claudex installer exited with status {status}");
+    }
+
+    Ok(())
+}
+
+pub fn installer_command_display() -> &'static str {
+    if cfg!(windows) {
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex\""
     } else {
         "curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash"
+    }
+}
+
+fn installer_command() -> (&'static str, &'static [&'static str]) {
+    if cfg!(windows) {
+        (
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            &[
+                "-c",
+                "curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash",
+            ],
+        )
     }
 }
 
@@ -100,14 +146,19 @@ mod tests {
     }
 
     #[test]
-    fn update_command_uses_installer_script() {
-        let command = claudex_update_command();
+    fn installer_command_uses_installer_script() {
+        let display = installer_command_display();
+        let (program, args) = installer_command();
         if cfg!(windows) {
-            assert!(command.contains("install.ps1"));
-            assert!(command.contains("irm "));
+            assert_eq!(program, "powershell.exe");
+            assert!(args.contains(&"-NoProfile"));
+            assert!(display.contains("install.ps1"));
+            assert!(display.contains("irm "));
         } else {
-            assert!(command.contains("install.sh"));
-            assert!(command.contains("curl -fL"));
+            assert_eq!(program, "sh");
+            assert!(args.contains(&"-c"));
+            assert!(display.contains("install.sh"));
+            assert!(display.contains("curl -fL"));
         }
     }
 }

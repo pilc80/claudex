@@ -196,37 +196,57 @@ async fn maybe_check_release_before_startup(args: &[String]) -> Result<()> {
 
     eprintln!("Claudex is checking GitHub releases for updates...");
     let check = tokio::time::timeout(UPDATE_CHECK_TIMEOUT, update::check_update()).await;
-    record_update_check(chrono::Utc::now().timestamp())?;
 
     let latest = match check {
         Ok(Ok(Some(version))) => version,
-        Ok(Ok(None)) => return Ok(()),
+        Ok(Ok(None)) => {
+            record_update_check(chrono::Utc::now().timestamp())?;
+            return Ok(());
+        }
         Ok(Err(err)) => {
             eprintln!("Claudex update check skipped: {err}");
+            record_update_check(chrono::Utc::now().timestamp())?;
             return Ok(());
         }
         Err(_) => {
             eprintln!("Claudex update check skipped: timed out");
+            record_update_check(chrono::Utc::now().timestamp())?;
             return Ok(());
         }
     };
 
-    if prompt_yes_no(
-        &format!("Claudex v{latest} is available. Show update command?"),
+    if !prompt_yes_no(
+        &format!("Claudex v{latest} is available. Update now?"),
         false,
     )? {
-        eprintln!("Update command:\n  {}", claudex_update_command());
+        eprintln!("Update command:\n  {}", update::installer_command_display());
+        record_update_check(chrono::Utc::now().timestamp())?;
+        return Ok(());
+    }
+
+    if cfg!(windows) {
+        eprintln!(
+            "On Windows, close other Claudex sessions before updating. First legacy-to-shim migration may fail while old claudex.exe is still running."
+        );
+        if !prompt_yes_no("Continue update?", false)? {
+            record_update_check(chrono::Utc::now().timestamp())?;
+            return Ok(());
+        }
+    }
+
+    match update::run_installer_update() {
+        Ok(()) => {
+            record_update_check(chrono::Utc::now().timestamp())?;
+            eprintln!("Claudex update finished. Restart Claudex to use v{latest}.");
+            std::process::exit(0);
+        }
+        Err(err) => {
+            eprintln!("Claudex update failed: {err}");
+            eprintln!("Run manually:\n  {}", update::installer_command_display());
+        }
     }
 
     Ok(())
-}
-
-fn claudex_update_command() -> &'static str {
-    if cfg!(windows) {
-        "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex"
-    } else {
-        "curl -fL --progress-bar https://raw.githubusercontent.com/pilc80/claudex/main/install.sh | bash"
-    }
 }
 
 fn is_interactive_startup(args: &[String]) -> bool {
@@ -874,12 +894,12 @@ mod tests {
     }
 
     #[test]
-    fn claudex_update_command_uses_platform_installer() {
-        let command = claudex_update_command();
+    fn installer_command_display_uses_platform_installer() {
+        let command = update::installer_command_display();
         if cfg!(windows) {
             assert_eq!(
                 command,
-                "irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex"
+                "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/pilc80/claudex/main/install.ps1 | iex\""
             );
         } else {
             assert_eq!(
