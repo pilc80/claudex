@@ -84,6 +84,15 @@ fn unix_installer_explains_running_proxy_action() {
 }
 
 #[test]
+fn unix_installer_smoke_tests_config_symlink_before_and_after_deploy() {
+    let script = fs::read_to_string("install.sh").expect("install.sh should exist");
+
+    assert!(script.contains("$staging_config\" --version >/dev/null"));
+    assert!(script.contains("$INSTALLED_CONFIG_BIN\" --version 2>/dev/null || true"));
+    assert!(script.contains("verify_installed_latest"));
+}
+
+#[test]
 fn installers_use_claudex_config_for_management() {
     let unix_installer = fs::read_to_string("install.sh").expect("install.sh should exist");
     let windows_installer = install_ps1();

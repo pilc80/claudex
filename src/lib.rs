@@ -511,6 +511,7 @@ async fn run_config_cli() -> Result<()> {
 
         Some(Commands::Proxy { action }) => match action {
             ProxyAction::Start { port } => {
+                let port = Some(select_proxy_start_port(&config, port)?);
                 proxy::start_proxy(config, port).await?;
             }
             ProxyAction::Stop => {
@@ -663,31 +664,13 @@ enum ProxyHealth {
 }
 
 async fn ensure_launcher_proxy(config: &mut ClaudexConfig) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(800))
-        .build()?;
-    let health = probe_proxy_health(&client, &config.proxy_host, config.proxy_port).await;
-
-    if health == ProxyHealth::Current {
-        return Ok(());
-    }
-
-    if health == ProxyHealth::StaleOrUnknown {
-        let previous_port = config.proxy_port;
-        config.proxy_port = find_available_local_port(&config.proxy_host)?;
-        tracing::warn!(
-            previous_port,
-            new_port = config.proxy_port,
-            "existing proxy is stale or missing health metadata; starting private proxy for this session"
-        );
-    } else if process::daemon::is_proxy_running()? {
-        tracing::warn!(
-            port = config.proxy_port,
-            "proxy PID exists but configured health endpoint is unreachable; starting proxy on configured port"
-        );
-    } else {
-        tracing::info!("proxy not running, starting in background...");
-    }
+    let previous_port = config.proxy_port;
+    config.proxy_port = find_available_local_port(&config.proxy_host)?;
+    tracing::info!(
+        previous_port,
+        port = config.proxy_port,
+        "starting private proxy for this session"
+    );
 
     start_proxy_background(config).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -729,6 +712,13 @@ fn current_request_body_limit_bytes() -> usize {
         std::env::var(proxy::REQUEST_BODY_LIMIT_ENV).ok().as_deref(),
     )
     .unwrap_or(proxy::DEFAULT_REQUEST_BODY_LIMIT_BYTES)
+}
+
+fn select_proxy_start_port(config: &ClaudexConfig, port_override: Option<u16>) -> Result<u16> {
+    match port_override {
+        Some(port) => Ok(port),
+        None => find_available_local_port(&config.proxy_host),
+    }
 }
 
 fn find_available_local_port(host: &str) -> Result<u16> {
@@ -806,6 +796,35 @@ mod tests {
             hyperlinks_from_env(Some("auto")).unwrap(),
             Some(HyperlinksConfig::Auto)
         );
+    }
+
+    #[test]
+    fn proxy_start_without_override_selects_ephemeral_port() {
+        let config = ClaudexConfig {
+            proxy_host: "127.0.0.1".to_string(),
+            proxy_port: 13456,
+            ..ClaudexConfig::default()
+        };
+
+        let selected = select_proxy_start_port(&config, None).unwrap();
+
+        assert_ne!(selected, 13456);
+        assert!(selected > 0);
+    }
+
+    #[test]
+    fn proxy_start_keeps_explicit_port_override() {
+        let config = ClaudexConfig::default();
+
+        assert_eq!(select_proxy_start_port(&config, Some(7777)).unwrap(), 7777);
+    }
+
+    #[test]
+    fn find_available_local_port_returns_bindable_port() {
+        let port = find_available_local_port("127.0.0.1").unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", port));
+
+        assert!(listener.is_ok());
     }
 
     #[test]

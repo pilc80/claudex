@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use semver::Version;
 use serde::Deserialize;
 use std::process::Command;
 
@@ -40,7 +41,12 @@ fn fetch_latest_manifest_version() -> Result<String> {
 
 fn newer_version(latest_version: String, current: &str) -> Result<Option<String>> {
     let latest_version = latest_version.trim_start_matches('v').to_string();
-    if latest_version != current {
+    let latest = Version::parse(&latest_version)
+        .with_context(|| format!("invalid latest Claudex version: {latest_version}"))?;
+    let current = Version::parse(current)
+        .with_context(|| format!("invalid current Claudex version: {current}"))?;
+
+    if latest > current {
         Ok(Some(latest_version))
     } else {
         Ok(None)
@@ -134,6 +140,14 @@ mod tests {
     fn newer_version_returns_none_for_current() {
         assert_eq!(
             newer_version("v0.9.41".to_string(), "0.9.41").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn newer_version_returns_none_when_current_is_newer_than_latest() {
+        assert_eq!(
+            newer_version("v0.9.43".to_string(), "0.9.44").unwrap(),
             None
         );
     }

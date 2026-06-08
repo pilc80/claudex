@@ -19,13 +19,18 @@ use crate::proxy::ProxyState;
 use crate::router::classifier;
 
 const IMAGE_HISTORY_PLACEHOLDER_PREFIX: &str = "[Previous image omitted by claudex";
+#[cfg(test)]
 const COMPACT_PROMPT_SNIPPET_RADIUS_BYTES: usize = 700;
+#[cfg(test)]
 const COMPACT_PROMPT_MAX_SNIPPETS: usize = 24;
+#[cfg(test)]
 const COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 const COMPACT_COMMAND_PATTERNS: &[&str] = &[
     "<command-name>/compact</command-name>",
     "<command-message>compact</command-message>",
 ];
+#[cfg(test)]
 const COMPACT_DIRECTIVE_PATTERNS: &[&str] = &[
     "create a detailed summary",
     "detailed summary",
@@ -38,6 +43,8 @@ const COMPACT_DIRECTIVE_PATTERNS: &[&str] = &[
     "summary below covers",
     "compact",
 ];
+const COMPACT_HIDDEN_SUMMARIZER_PREFIX: &str =
+    "critical: respond with text only. do not call any tools.";
 const COMPACT_ADDITIONAL_INSTRUCTION: &str = "\
 Additional claudex compaction instruction:
 For this compaction response, produce a concise continuation handoff, not a full historical narrative.
@@ -529,8 +536,19 @@ async fn try_forward(
         "forwarding request"
     );
 
-    if compact_request {
-        dump_compact_prompt_audit(&profile.name, &url, &body_for_translation, &translated.body);
+    if compact_request && full_debug_dumps_enabled() {
+        tracing::warn!(
+            profile = %profile.name,
+            "CLAUDEX_FULL_DEBUG_DUMPS is enabled; writing full compact request/response dumps"
+        );
+        dump_compact_full_debug(
+            "compact_full_request",
+            &profile.name,
+            &url,
+            None,
+            Some(&body_for_translation),
+            Some(&json!({ "translated_request": translated.body.clone() })),
+        );
     }
 
     let mut attempts = 0;
@@ -696,6 +714,16 @@ async fn try_forward(
                         String::from_utf8_lossy(&preflight.buffered).to_string(),
                         Some(&anthropic_err),
                     );
+                    if compact_request {
+                        dump_compact_response_debug(
+                            &profile.name,
+                            &url,
+                            status.as_u16(),
+                            &translated.body,
+                            String::from_utf8_lossy(&preflight.buffered).to_string(),
+                            None,
+                        );
+                    }
                     let response = Response::builder()
                         .status(StatusCode::BAD_REQUEST)
                         .header("content-type", "application/json")
@@ -714,6 +742,16 @@ async fn try_forward(
                         String::from_utf8_lossy(&preflight.buffered).to_string(),
                         Some(&anthropic_err.json()),
                     );
+                    if compact_request {
+                        dump_compact_response_debug(
+                            &profile.name,
+                            &url,
+                            status.as_u16(),
+                            &translated.body,
+                            String::from_utf8_lossy(&preflight.buffered).to_string(),
+                            Some(&anthropic_err.json()),
+                        );
+                    }
                     let response = Response::builder()
                         .status(anthropic_err.http_status)
                         .header("content-type", "application/json")
@@ -732,6 +770,16 @@ async fn try_forward(
                         String::from_utf8_lossy(&preflight.buffered).to_string(),
                         Some(&anthropic_err.json()),
                     );
+                    if compact_request {
+                        dump_compact_response_debug(
+                            &profile.name,
+                            &url,
+                            status.as_u16(),
+                            &translated.body,
+                            String::from_utf8_lossy(&preflight.buffered).to_string(),
+                            Some(&anthropic_err.json()),
+                        );
+                    }
                     let response = Response::builder()
                         .status(anthropic_err.http_status)
                         .header("content-type", "application/json")
@@ -750,6 +798,7 @@ async fn try_forward(
                     status.as_u16(),
                     translated.body.clone(),
                     upstream_capture,
+                    compact_request,
                 );
                 let response = Response::builder()
                     .status(200)
@@ -770,6 +819,7 @@ async fn try_forward(
                 status.as_u16(),
                 translated.body.clone(),
                 upstream_capture,
+                false,
             );
             let response = Response::builder()
                 .status(200)
@@ -1054,6 +1104,7 @@ fn dump_claude_stream_errors<S>(
     upstream_status: u16,
     request: Value,
     upstream_response: Arc<Mutex<Vec<u8>>>,
+    dump_compact_response: bool,
 ) -> impl Stream<Item = Result<Bytes, reqwest::Error>> + Send
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
@@ -1071,6 +1122,22 @@ where
                 }
             }
             yield chunk;
+        }
+
+        if dump_compact_response {
+            let response_text = String::from_utf8_lossy(&response).to_string();
+            let upstream_response_text = upstream_response
+                .lock()
+                .map(|captured| String::from_utf8_lossy(&captured).to_string())
+                .unwrap_or_default();
+            dump_compact_response_debug(
+                &profile,
+                &url,
+                upstream_status,
+                &request,
+                upstream_response_text,
+                Some(&json!({ "downstream": response_text })),
+            );
         }
 
         if dumped {
@@ -1100,14 +1167,92 @@ fn stream_chunk_has_error_event(bytes: &[u8]) -> bool {
         .is_ok_and(|chunk| chunk.contains("event: error") || chunk.contains("\"type\":\"error\""))
 }
 
+#[cfg(test)]
 fn is_compact_prompt_audit_request(original: &Value, translated: &Value) -> bool {
     value_contains_any_text(original, COMPACT_COMMAND_PATTERNS)
         || value_contains_compact_summary_directive(original)
         || value_contains_compact_summary_directive(translated)
 }
 
+fn last_user_message_is_current_compact_request(original: &Value) -> bool {
+    original
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .and_then(|messages| {
+            messages
+                .iter()
+                .rfind(|message| message.get("role").and_then(|v| v.as_str()) == Some("user"))
+        })
+        .and_then(message_text)
+        .is_some_and(|text| is_current_compact_text(&text))
+}
+
+fn last_translated_input_is_hidden_compact_request(translated: &Value) -> bool {
+    translated
+        .get("input")
+        .and_then(|v| v.as_array())
+        .and_then(|input| {
+            input
+                .iter()
+                .rfind(|message| message.get("role").and_then(|v| v.as_str()) == Some("user"))
+        })
+        .and_then(message_text)
+        .is_some_and(|text| is_hidden_compact_summary_prompt(&text))
+}
+
+fn message_text(message: &Value) -> Option<String> {
+    match message.get("content")? {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn is_current_compact_text(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.starts_with("/compact")
+        || normalized_compact_command_text(trimmed).starts_with("/compact")
+        || is_hidden_compact_summary_prompt(trimmed)
+}
+
+fn normalized_compact_command_text(text: &str) -> String {
+    let without_tags = text
+        .replace("<command-name>", "")
+        .replace("</command-name>", "\n")
+        .replace("<command-message>", "")
+        .replace("</command-message>", "\n")
+        .replace("<command-args>", "")
+        .replace("</command-args>", "\n");
+    without_tags.trim_start().to_string()
+}
+
+fn is_hidden_compact_summary_prompt(text: &str) -> bool {
+    let lower = text.trim_start().to_ascii_lowercase();
+    let has_prefix = lower
+        .lines()
+        .take(3)
+        .any(|line| line.trim() == COMPACT_HIDDEN_SUMMARIZER_PREFIX);
+    let has_summary_task = lower.lines().take(8).any(|line| {
+        line.contains("create") && line.contains("detailed") && line.contains("summary")
+    });
+
+    has_prefix && has_summary_task
+}
+
+fn is_current_compact_command_request(original: &Value, translated: &Value) -> bool {
+    last_user_message_is_current_compact_request(original)
+        || last_translated_input_is_hidden_compact_request(translated)
+}
+
 fn apply_compact_prompt_overrides(original: &Value, translated: &mut Value) -> bool {
-    if !is_compact_prompt_audit_request(original, translated) {
+    if !is_current_compact_command_request(original, translated) {
         return false;
     }
 
@@ -1120,10 +1265,14 @@ fn apply_compact_prompt_overrides(original: &Value, translated: &mut Value) -> b
     };
     if let Some(map) = translated.as_object_mut() {
         map.remove("reasoning");
+        map.remove("tools");
+        map.remove("tool_choice");
+        map.remove("parallel_tool_calls");
     }
     true
 }
 
+#[cfg(test)]
 fn value_contains_compact_summary_directive(value: &Value) -> bool {
     let has_summary_task = value_contains_any_text(
         value,
@@ -1145,12 +1294,14 @@ fn value_contains_compact_summary_directive(value: &Value) -> bool {
     has_summary_task && has_summary_structure
 }
 
+#[cfg(test)]
 fn value_contains_any_text(value: &Value, patterns: &[&str]) -> bool {
     patterns
         .iter()
         .any(|pattern| value_contains_text(value, pattern))
 }
 
+#[cfg(test)]
 fn value_contains_text(value: &Value, pattern: &str) -> bool {
     let needle = pattern.to_ascii_lowercase();
     match value {
@@ -1161,6 +1312,7 @@ fn value_contains_text(value: &Value, pattern: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn dump_compact_prompt_audit(profile: &str, url: &str, original: &Value, translated: &Value) {
     let Some(audit) = build_compact_prompt_audit(profile, url, original, translated) else {
         return;
@@ -1198,6 +1350,7 @@ fn dump_compact_prompt_audit(profile: &str, url: &str, original: &Value, transla
     }
 }
 
+#[cfg(test)]
 fn build_compact_prompt_audit(
     profile: &str,
     url: &str,
@@ -1232,6 +1385,7 @@ fn build_compact_prompt_audit(
     }))
 }
 
+#[cfg(test)]
 fn request_summary(value: &Value) -> Value {
     json!({
         "keys": value_keys(value),
@@ -1248,6 +1402,7 @@ fn request_summary(value: &Value) -> Value {
     })
 }
 
+#[cfg(test)]
 fn instruction_audit(text: &str) -> Value {
     let truncated = if text.len() > COMPACT_PROMPT_MAX_INSTRUCTIONS_BYTES {
         format!(
@@ -1266,6 +1421,7 @@ fn instruction_audit(text: &str) -> Value {
     })
 }
 
+#[cfg(test)]
 fn value_keys(value: &Value) -> Vec<String> {
     value
         .as_object()
@@ -1273,6 +1429,7 @@ fn value_keys(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn shape_array(items: &[Value]) -> Value {
     Value::Array(
         items
@@ -1293,6 +1450,7 @@ fn shape_array(items: &[Value]) -> Value {
     )
 }
 
+#[cfg(test)]
 fn count_string_fields(value: &Value) -> usize {
     match value {
         Value::String(_) => 1,
@@ -1302,16 +1460,19 @@ fn count_string_fields(value: &Value) -> usize {
     }
 }
 
+#[cfg(test)]
 fn find_first_directive_snippet(value: &Value, patterns: &[&str]) -> Option<Value> {
     let mut snippets = Vec::new();
     collect_snippets_for_patterns("request", "$", value, patterns, &mut snippets);
     snippets.into_iter().next()
 }
 
+#[cfg(test)]
 fn collect_directive_snippets(source: &str, value: &Value, snippets: &mut Vec<Value>) {
     collect_snippets_for_patterns(source, "$", value, COMPACT_DIRECTIVE_PATTERNS, snippets);
 }
 
+#[cfg(test)]
 fn collect_snippets_for_patterns(
     source: &str,
     path: &str,
@@ -1369,6 +1530,7 @@ fn collect_snippets_for_patterns(
     }
 }
 
+#[cfg(test)]
 fn first_pattern_match<'a>(text: &str, patterns: &'a [&str]) -> Option<(&'a str, usize)> {
     let lower = text.to_ascii_lowercase();
     patterns
@@ -1381,6 +1543,7 @@ fn first_pattern_match<'a>(text: &str, patterns: &'a [&str]) -> Option<(&'a str,
         .min_by_key(|(_, position)| *position)
 }
 
+#[cfg(test)]
 fn snippet_around(text: &str, position: usize, matched_bytes: usize) -> String {
     let mut start = position.saturating_sub(COMPACT_PROMPT_SNIPPET_RADIUS_BYTES);
     while !text.is_char_boundary(start) {
@@ -1436,6 +1599,94 @@ fn write_private_dump_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Res
     }
     let mut file = options.open(path)?;
     std::io::Write::write_all(&mut file, bytes)
+}
+
+fn full_debug_dumps_enabled() -> bool {
+    std::env::var("CLAUDEX_FULL_DEBUG_DUMPS").is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn dump_compact_response_debug(
+    profile: &str,
+    url: &str,
+    upstream_status: u16,
+    request: &Value,
+    upstream_response: String,
+    translated_response: Option<&Value>,
+) {
+    if !full_debug_dumps_enabled() {
+        return;
+    }
+
+    dump_compact_full_debug(
+        "compact_response_debug",
+        profile,
+        url,
+        Some(upstream_status),
+        Some(request),
+        Some(&json!({
+            "upstream_response": upstream_response,
+            "translated_response": translated_response,
+        })),
+    );
+}
+
+fn dump_compact_full_debug(
+    kind: &str,
+    profile: &str,
+    url: &str,
+    upstream_status: Option<u16>,
+    request: Option<&Value>,
+    response: Option<&Value>,
+) {
+    let Some(dir) = dirs::cache_dir().map(|d| d.join("claudex").join("request-dumps")) else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %err, "failed to create compact full debug dump directory");
+        return;
+    }
+
+    let safe_profile = safe_dump_component(profile);
+    let path = dir.join(format!(
+        "{}-{}-{}-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S%.3f"),
+        std::process::id(),
+        safe_profile,
+        kind
+    ));
+    let dump = json!({
+        "kind": kind,
+        "profile": profile,
+        "url": url,
+        "upstream_status": upstream_status,
+        "request": request,
+        "response": response,
+    });
+
+    match serde_json::to_vec_pretty(&dump) {
+        Ok(bytes) => match write_private_dump_file(&path, &bytes) {
+            Ok(()) => tracing::info!(
+                path = %path.display(),
+                profile,
+                kind,
+                "compact full debug dump written"
+            ),
+            Err(err) => tracing::warn!(
+                error = %err,
+                path = %path.display(),
+                kind,
+                "failed to write compact full debug dump"
+            ),
+        },
+        Err(err) => {
+            tracing::warn!(error = %err, kind, "failed to serialize compact full debug dump")
+        }
+    }
 }
 
 fn dump_proxy_error(
@@ -1717,7 +1968,7 @@ mod tests {
             "messages": [
                 {
                     "role": "user",
-                    "content": "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"
+                    "content": "/compact"
                 }
             ]
         });
@@ -1725,6 +1976,9 @@ mod tests {
             "model": "gpt-5.5",
             "instructions": "base instructions",
             "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
             "stream": true,
             "input": []
         });
@@ -1736,6 +1990,183 @@ mod tests {
         assert!(instructions.contains("Additional claudex compaction instruction"));
         assert!(instructions.contains("Target 800-1500 words"));
         assert!(translated.get("reasoning").is_none());
+        assert!(translated.get("tools").is_none());
+        assert!(translated.get("tool_choice").is_none());
+        assert!(translated.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_detects_current_xml_compact_command() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+
+        assert!(apply_compact_prompt_overrides(&original, &mut translated));
+        assert!(translated.get("reasoning").is_none());
+        assert!(translated.get("tools").is_none());
+        assert!(translated.get("tool_choice").is_none());
+        assert!(translated.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_detects_current_hidden_summarizer_prompt() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\nYour task is to create a detailed summary of the conversation so far."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+
+        assert!(apply_compact_prompt_overrides(&original, &mut translated));
+        assert!(translated.get("reasoning").is_none());
+        assert!(translated.get("tools").is_none());
+        assert!(translated.get("tool_choice").is_none());
+        assert!(translated.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_detects_hidden_summarizer_task_within_first_8_lines() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\n- Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.\n- Respond only with the requested content.\n\nYour task is to create a detailed summary of the conversation so far."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+
+        assert!(apply_compact_prompt_overrides(&original, &mut translated));
+        assert!(translated.get("reasoning").is_none());
+        assert!(translated.get("tools").is_none());
+        assert!(translated.get("tool_choice").is_none());
+        assert!(translated.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_ignores_hidden_summarizer_task_after_first_8_lines() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nYour task is to create a detailed summary of the conversation so far."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+        let unchanged = translated.clone();
+
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
+    }
+
+    #[test]
+    fn compact_prompt_override_detects_translated_hidden_summarizer_prompt() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Continue the normal task."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "TaskCreate"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\nYour task is to create a detailed summary of the conversation so far."
+                        }
+                    ]
+                }
+            ]
+        });
+
+        assert!(apply_compact_prompt_overrides(&original, &mut translated));
+        assert!(translated.get("reasoning").is_none());
+        assert!(translated.get("tools").is_none());
+        assert!(translated.get("tool_choice").is_none());
+        assert!(translated.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn compact_prompt_override_ignores_quoted_compact_command_markers() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Investigate this log: <command-name>/compact</command-name> should not disable tools."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "Edit"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+        let unchanged = translated.clone();
+
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
     }
 
     #[test]
@@ -1757,6 +2188,104 @@ mod tests {
         });
         let unchanged = translated.clone();
 
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
+    }
+
+    #[test]
+    fn compact_prompt_override_ignores_historical_compact_command() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"
+                },
+                {
+                    "role": "assistant",
+                    "content": "Compacted (ctrl+o to see full summary)"
+                },
+                {
+                    "role": "user",
+                    "content": "Now edit the file."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "Edit"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": []
+        });
+        let unchanged = translated.clone();
+
+        assert!(is_compact_prompt_audit_request(&original, &translated));
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
+    }
+
+    #[test]
+    fn compact_prompt_override_ignores_historical_translated_summarizer_prompt() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far.\nInclude pending tasks and current work."
+                },
+                {
+                    "role": "assistant",
+                    "content": "Compacted (ctrl+o to see full summary)"
+                },
+                {
+                    "role": "user",
+                    "content": "Now edit the file."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "Edit"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far."
+                        }
+                    ]
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Compacted summary text"
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Now edit the file."
+                        }
+                    ]
+                }
+            ]
+        });
+        let unchanged = translated.clone();
+
+        assert!(is_compact_prompt_audit_request(&original, &translated));
         assert!(!apply_compact_prompt_overrides(&original, &mut translated));
         assert_eq!(translated, unchanged);
     }
@@ -1786,6 +2315,69 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("/compact"));
+    }
+
+    #[test]
+    fn compact_prompt_override_ignores_historical_summarizer_prompt() {
+        let original = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far.\nInclude pending tasks and current work."
+                },
+                {
+                    "role": "assistant",
+                    "content": "Compacted (ctrl+o to see full summary)"
+                },
+                {
+                    "role": "user",
+                    "content": "Now edit the file."
+                }
+            ]
+        });
+        let mut translated = json!({
+            "model": "gpt-5.5",
+            "instructions": "base instructions",
+            "reasoning": {"effort": "high", "summary": "detailed"},
+            "tools": [{"type": "function", "name": "Edit"}],
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "stream": true,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far."
+                        }
+                    ]
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Compacted summary text"
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Now edit the file."
+                        }
+                    ]
+                }
+            ]
+        });
+        let unchanged = translated.clone();
+
+        assert!(is_compact_prompt_audit_request(&original, &translated));
+        assert!(!apply_compact_prompt_overrides(&original, &mut translated));
+        assert_eq!(translated, unchanged);
     }
 
     #[test]

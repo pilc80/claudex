@@ -122,8 +122,10 @@ interactive launches at most once every 3 hours; failures/timeouts must not bloc
 Claude startup, and startup must print installer instructions rather than trying
 to overwrite the running `claudex` binary. On Windows only, installed
 `claudex.exe` and `claudex-config.exe` are stable shims that dispatch to
-versioned real binaries via `latest.txt`; macOS/Linux keep the existing installer
-layout.
+versioned real binaries via `latest.txt`. On macOS/Linux, `claudex-config`
+should remain a symlink to the installed `claudex` binary; `claudex` dispatches
+config mode from argv0, so local deploys must update `claudex` and preserve that
+symlink rather than installing a separate `claudex-config` binary.
 
 ### Configuration
 

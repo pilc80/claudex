@@ -371,7 +371,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "claudex"
-version = "0.9.43"
+version = "0.9.48"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -395,6 +395,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.3",
  "self_update",
+ "semver",
  "serde",
  "serde_json",
  "serde_yml",
