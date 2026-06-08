@@ -156,6 +156,7 @@ The config file is at `~/.config/claudex/config.toml`. See
 
 ## Deployment Rules
 
+- Local deploys on macOS/Linux must replace the installed `claudex` with atomic rename: copy `target/release/claudex` to a temp file in the install dir, `chmod +x`, then `mv -f` over `~/.local/bin/claudex`; never `cp` directly onto the live installed path because running Claudex processes can keep the old vnode and future invocations may exit 137/SIGKILL.
 - Before each new server/proxy binary deploy, increment the `Cargo.toml` patch
   version: `0.9.x -> 0.9.x+1`. Bump the version first, then run
   `cargo build --release`, then update and verify the deployment.

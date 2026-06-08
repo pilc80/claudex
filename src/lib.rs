@@ -197,12 +197,8 @@ async fn maybe_check_release_before_startup(args: &[String]) -> Result<()> {
     eprintln!("Claudex is checking GitHub releases for updates...");
     let check = tokio::time::timeout(UPDATE_CHECK_TIMEOUT, update::check_update()).await;
 
-    let latest = match check {
-        Ok(Ok(Some(version))) => version,
-        Ok(Ok(None)) => {
-            record_update_check(chrono::Utc::now().timestamp())?;
-            return Ok(());
-        }
+    let result = match check {
+        Ok(Ok(result)) => result,
         Ok(Err(err)) => {
             eprintln!("Claudex update check skipped: {err}");
             record_update_check(chrono::Utc::now().timestamp())?;
@@ -215,6 +211,14 @@ async fn maybe_check_release_before_startup(args: &[String]) -> Result<()> {
         }
     };
 
+    eprintln!("{}", result.startup_summary());
+    record_update_check(chrono::Utc::now().timestamp())?;
+
+    if result.verdict != update::UpdateCheckVerdict::UpdateAvailable {
+        return Ok(());
+    }
+
+    let latest = result.latest_version;
     if !prompt_yes_no(
         &format!("Claudex v{latest} is available. Update now?"),
         false,

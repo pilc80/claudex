@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use semver::Version;
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::process::Command;
 
 const REPO_OWNER: &str = "pilc80";
@@ -13,18 +14,17 @@ struct ReleaseManifest {
     version: String,
 }
 
-/// Check if a newer version is available on GitHub Releases.
-/// Returns Some(version) if newer, None if up-to-date.
-pub async fn check_update() -> Result<Option<String>> {
+/// Check GitHub Releases against the local Claudex version.
+pub async fn check_update() -> Result<UpdateCheckResult> {
     tokio::task::spawn_blocking(check_update_blocking).await?
 }
 
-fn check_update_blocking() -> Result<Option<String>> {
+fn check_update_blocking() -> Result<UpdateCheckResult> {
     let current = env!("CARGO_PKG_VERSION");
     let latest_version = fetch_latest_manifest_version()?
         .trim_start_matches('v')
         .to_string();
-    newer_version(latest_version, current)
+    compare_versions(latest_version, current)
 }
 
 fn fetch_latest_manifest_version() -> Result<String> {
@@ -39,18 +39,67 @@ fn fetch_latest_manifest_version() -> Result<String> {
     Ok(manifest.version)
 }
 
-fn newer_version(latest_version: String, current: &str) -> Result<Option<String>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCheckResult {
+    pub latest_version: String,
+    pub current_version: String,
+    pub verdict: UpdateCheckVerdict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateCheckVerdict {
+    UpdateAvailable,
+    UpToDate,
+    LocalAhead,
+}
+
+impl UpdateCheckResult {
+    pub fn startup_summary(&self) -> String {
+        format!(
+            "Claudex update check: GitHub release v{}, local v{} — {}.",
+            self.latest_version,
+            self.current_version,
+            self.verdict.label()
+        )
+    }
+}
+
+impl UpdateCheckVerdict {
+    fn label(self) -> &'static str {
+        match self {
+            UpdateCheckVerdict::UpdateAvailable => "update available",
+            UpdateCheckVerdict::UpToDate => "up to date",
+            UpdateCheckVerdict::LocalAhead => "local is ahead",
+        }
+    }
+}
+
+fn compare_versions(latest_version: String, current: &str) -> Result<UpdateCheckResult> {
     let latest_version = latest_version.trim_start_matches('v').to_string();
     let latest = Version::parse(&latest_version)
         .with_context(|| format!("invalid latest Claudex version: {latest_version}"))?;
-    let current = Version::parse(current)
+    let current_parsed = Version::parse(current)
         .with_context(|| format!("invalid current Claudex version: {current}"))?;
 
-    if latest > current {
-        Ok(Some(latest_version))
-    } else {
-        Ok(None)
-    }
+    let verdict = match latest.cmp(&current_parsed) {
+        Ordering::Greater => UpdateCheckVerdict::UpdateAvailable,
+        Ordering::Equal => UpdateCheckVerdict::UpToDate,
+        Ordering::Less => UpdateCheckVerdict::LocalAhead,
+    };
+
+    Ok(UpdateCheckResult {
+        latest_version,
+        current_version: current.to_string(),
+        verdict,
+    })
+}
+
+fn newer_version(latest_version: String, current: &str) -> Result<Option<String>> {
+    let result = compare_versions(latest_version, current)?;
+    Ok(match result.verdict {
+        UpdateCheckVerdict::UpdateAvailable => Some(result.latest_version),
+        UpdateCheckVerdict::UpToDate | UpdateCheckVerdict::LocalAhead => None,
+    })
 }
 
 /// Download and install the latest version.
@@ -127,6 +176,41 @@ fn installer_command() -> (&'static str, &'static [&'static str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compare_versions_reports_update_available() {
+        let result = compare_versions("v0.9.42".to_string(), "0.9.41").unwrap();
+
+        assert_eq!(result.latest_version, "0.9.42");
+        assert_eq!(result.current_version, "0.9.41");
+        assert_eq!(result.verdict, UpdateCheckVerdict::UpdateAvailable);
+        assert_eq!(
+            result.startup_summary(),
+            "Claudex update check: GitHub release v0.9.42, local v0.9.41 — update available."
+        );
+    }
+
+    #[test]
+    fn compare_versions_reports_up_to_date() {
+        let result = compare_versions("v0.9.41".to_string(), "0.9.41").unwrap();
+
+        assert_eq!(result.verdict, UpdateCheckVerdict::UpToDate);
+        assert_eq!(
+            result.startup_summary(),
+            "Claudex update check: GitHub release v0.9.41, local v0.9.41 — up to date."
+        );
+    }
+
+    #[test]
+    fn compare_versions_reports_local_ahead() {
+        let result = compare_versions("v0.9.43".to_string(), "0.9.44").unwrap();
+
+        assert_eq!(result.verdict, UpdateCheckVerdict::LocalAhead);
+        assert_eq!(
+            result.startup_summary(),
+            "Claudex update check: GitHub release v0.9.43, local v0.9.44 — local is ahead."
+        );
+    }
 
     #[test]
     fn newer_version_strips_v_prefix() {

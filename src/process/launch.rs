@@ -150,11 +150,13 @@ fn build_claude_command(
         cmd.env("ANTHROPIC_DEFAULT_OPUS_MODEL", o);
     }
 
-    if ctx.is_openai_responses_oauth {
-        if let Some(window) = openai_model_auto_compact_window(ctx.visible_model) {
-            cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
-        }
-    }
+    // Do not force Claude Code's auto-compact window from Claudex.
+    // Explicit model suffixes such as [1m] are left for Claude Code/provider routing to interpret.
+    // if ctx.is_openai_responses_oauth {
+    //     if let Some(window) = openai_model_auto_compact_window(ctx.visible_model) {
+    //         cmd.env("CLAUDE_CODE_AUTO_COMPACT_WINDOW", window.to_string());
+    //     }
+    // }
 
     for (k, v) in &ctx.profile.extra_env {
         cmd.env(k, v);
@@ -378,7 +380,7 @@ fn has_context_window_suffix(model: &str) -> bool {
 }
 
 fn is_large_context_gpt_model(model: &str) -> bool {
-    if model == "gpt-5.5-pro" {
+    if matches!(model, "gpt-5.4" | "gpt-5.5" | "gpt-5.5-pro") {
         return true;
     }
 
@@ -552,17 +554,17 @@ mod tests {
 
     #[test]
     fn large_context_gpt_detection_matches_boundary() {
-        assert!(["gpt-5.5-pro", "gpt-5.6"]
+        assert!(["gpt-5.4", "gpt-5.5", "gpt-5.5-pro", "gpt-5.6"]
             .into_iter()
             .all(is_large_context_gpt_model));
-        assert!(["gpt-5.5", "gpt-5.5-mini", "gpt-5.4-pro"]
+        assert!(["gpt-5.5-mini", "gpt-5.4-pro"]
             .into_iter()
             .all(|model| !is_large_context_gpt_model(model)));
     }
 
     #[test]
     fn claude_visible_model_adds_suffix_only_for_large_context_models() {
-        assert_eq!(claude_visible_model("gpt-5.5", true), "gpt-5.5");
+        assert_eq!(claude_visible_model("gpt-5.5", true), "gpt-5.5[1m]");
         assert_eq!(claude_visible_model("gpt-5.5-mini", true), "gpt-5.5-mini");
         assert_eq!(claude_visible_model("gpt-4o", true), "gpt-4o");
         assert_eq!(claude_visible_model("gpt-5.5-pro", true), "gpt-5.5-pro[1m]");
@@ -577,8 +579,9 @@ mod tests {
     }
 
     #[test]
-    fn openai_model_auto_compact_window_uses_legacy_window_for_non_large_gpt_models() {
-        assert_eq!(openai_model_auto_compact_window("gpt-5.5"), Some(272_000));
+    fn openai_model_auto_compact_window_does_not_limit_large_context_gpt_models() {
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5"), None);
+        assert_eq!(openai_model_auto_compact_window("gpt-5.5[1m]"), None);
         assert_eq!(
             openai_model_auto_compact_window("gpt-5.5-mini"),
             Some(272_000)
