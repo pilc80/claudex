@@ -150,6 +150,19 @@ pub fn is_context_overflow_text(text: &str) -> bool {
         || (lower.contains("context window") && lower.contains("exceed"))
 }
 
+/// Detects a server-side invalidated/revoked OAuth token (e.g. ChatGPT/Codex
+/// `token_invalidated`). Unlike a merely expired token, refresh cannot revive
+/// it — only re-login can — so callers must surface it as a terminal auth
+/// error rather than retry.
+pub fn is_token_invalidated_text(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("token_invalidated")
+        || lower.contains("token has been invalidated")
+        || lower.contains("tokens have been invalidated")
+        || lower.contains("signing in again")
+        || lower.contains("sign in again")
+}
+
 pub fn circuit_decision(error: &AnthropicError) -> CircuitDecision {
     match error.error_type {
         "rate_limit_error" | "api_error" | "timeout_error" | "overloaded_error" => {
@@ -170,6 +183,15 @@ pub fn circuit_decision(error: &AnthropicError) -> CircuitDecision {
 fn classify_error_type(status: Option<u16>, text: &str, message: Option<&str>) -> &'static str {
     let lower = text.to_ascii_lowercase();
     if is_context_overflow_text(&lower) {
+        return "invalid_request_error";
+    }
+    // A server-side invalidated/revoked OAuth token (e.g. ChatGPT/Codex
+    // `token_invalidated`) cannot be recovered by refresh — only re-login can.
+    // Classify it as a terminal invalid_request_error (HTTP 400) instead of
+    // authentication_error (401): clients such as Claude Code retry 401/403 as
+    // "authentication_failed", but treat 400 as terminal, so the error surfaces
+    // immediately with our actionable message instead of looping 10x.
+    if is_token_invalidated_text(&lower) {
         return "invalid_request_error";
     }
     if lower.contains("server_is_overloaded")
@@ -235,10 +257,19 @@ fn classify_error_type(status: Option<u16>, text: &str, message: Option<&str>) -
 
 fn normalize_message(error_type: &'static str, message: String) -> String {
     if error_type == "invalid_request_error" && is_context_overflow_text(&message) {
-        "prompt is too long".to_string()
-    } else {
-        message
+        return "prompt is too long".to_string();
     }
+    // A revoked/invalidated token is terminal: refresh cannot recover it, only
+    // re-login can. Replace the provider's generic text with actionable guidance
+    // so the client surfaces a clear error instead of a vague retry.
+    if error_type == "invalid_request_error" && is_token_invalidated_text(&message) {
+        return "Authentication token has been invalidated (session revoked or \
+                subscription lapsed) and cannot be auto-refreshed. Re-authenticate via \
+                the provider login command \
+                (e.g. `claudex-config auth login chatgpt --profile <profile>`)."
+            .to_string();
+    }
+    message
 }
 
 fn anthropic_status(error_type: &str, fallback: StatusCode) -> StatusCode {
@@ -409,6 +440,26 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(circuit_decision(&overloaded), CircuitDecision::Retryable);
+    }
+
+    #[test]
+    fn invalidated_token_maps_to_terminal_400_with_guidance() {
+        // Real ChatGPT/Codex backend response for a revoked OAuth token.
+        let body = r#"{"error":{"message":"Your authentication token has been invalidated. Please try signing in again.","type":"invalid_request_error","code":"token_invalidated","param":null},"status":401}"#;
+        let err = from_http_status(StatusCode::UNAUTHORIZED, body);
+
+        // Terminal invalid_request_error (HTTP 400), NOT 401 authentication_error:
+        // clients retry 401/403 as authentication_failed but treat 400 as final,
+        // so the error surfaces immediately instead of looping.
+        assert_eq!(err.error_type, "invalid_request_error");
+        assert_eq!(err.http_status, StatusCode::BAD_REQUEST);
+        // Revoked token is terminal -> must not be retried by the circuit breaker.
+        assert_eq!(circuit_decision(&err), CircuitDecision::Direct);
+        // Generic provider text is replaced with actionable re-login guidance.
+        assert!(!err.message.contains("Please try signing in again"));
+        assert!(err.message.contains("invalidated"));
+        assert!(err.message.contains("claudex-config auth login"));
+        assert!(is_token_invalidated_text(body));
     }
 
     #[test]
