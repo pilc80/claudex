@@ -561,16 +561,31 @@ async fn run_config_cli() -> Result<()> {
                 headless,
                 enterprise_url,
             } => {
-                let profile_name = profile.unwrap_or_else(|| provider.clone());
-                oauth::providers::login(
-                    &mut config,
-                    &provider,
-                    &profile_name,
-                    force,
-                    headless,
-                    enterprise_url.as_deref(),
-                )
-                .await?;
+                if let Some(provider) = provider {
+                    let profile_name = profile.unwrap_or_else(|| provider.clone());
+                    oauth::providers::login(
+                        &mut config,
+                        &provider,
+                        &profile_name,
+                        force,
+                        headless,
+                        enterprise_url.as_deref(),
+                    )
+                    .await?;
+                } else {
+                    // No provider specified: surface the accessible options
+                    // instead of erroring, so the user knows what to type.
+                    println!("No provider specified. Available OAuth providers:");
+                    println!("  chatgpt (openai, codex)   claude   google (gemini)");
+                    println!("  qwen   kimi (moonshot)   github (copilot)   gitlab");
+                    println!();
+                    println!("Your profiles:");
+                    crate::config::profile::list_profiles(&config).await;
+                    println!();
+                    println!(
+                        "Example: claudex-config auth login <provider> --profile <profile> --force"
+                    );
+                }
             }
             AuthAction::Status { profile } => {
                 oauth::providers::status(&config, profile.as_deref()).await?;

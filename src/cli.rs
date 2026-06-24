@@ -93,12 +93,17 @@ pub enum ProfileAction {
 pub enum AuthAction {
     /// Login to an OAuth provider (claude, chatgpt/openai, google, qwen, kimi, github/copilot, gitlab)
     Login {
-        /// Provider name
-        provider: String,
-        /// Profile name (defaults to provider name)
+        /// OAuth provider to log in to (WHO you authenticate with): claude,
+        /// chatgpt/openai/codex, google/gemini, qwen, kimi/moonshot,
+        /// github/copilot, gitlab. Omit to list available providers + profiles.
+        provider: Option<String>,
+        /// Profile (from config.toml) to bind this login to (HOW claudex uses
+        /// the token: base_url/model). Defaults to <provider>. Multiple profiles
+        /// can share one provider login.
         #[arg(short, long)]
         profile: Option<String>,
-        /// Skip existing credential detection, force interactive login
+        /// REQUIRED to re-authenticate when a (stale/invalidated) token already
+        /// exists on disk; otherwise login is a no-op ("credentials available").
         #[arg(short, long)]
         force: bool,
         /// Use headless device code flow (for SSH/no-browser environments)
@@ -242,5 +247,27 @@ mod tests {
     #[test]
     fn proxy_start_rejects_daemon_option() {
         assert!(Cli::try_parse_from(["claudex-config", "proxy", "start", "--daemon"]).is_err());
+    }
+
+    #[test]
+    fn auth_login_help_explains_provider_profile_and_force() {
+        let mut login_cmd = Cli::command()
+            .get_subcommands()
+            .find(|c| c.get_name() == "auth")
+            .and_then(|auth| auth.get_subcommands().find(|c| c.get_name() == "login"))
+            .expect("auth login subcommand exists")
+            .clone();
+        let help = login_cmd.render_long_help().to_string();
+
+        // Provider (WHO) + profile (HOW) distinction + the re-auth foot-gun note.
+        assert!(help.contains("WHO you authenticate"));
+        assert!(help.contains("chatgpt/openai/codex"));
+        assert!(help.contains("REQUIRED to re-authenticate"));
+    }
+
+    #[test]
+    fn auth_login_accepts_no_provider() {
+        // provider is now optional so omitting it lists options instead of erroring.
+        assert!(Cli::try_parse_from(["claudex-config", "auth", "login"]).is_ok());
     }
 }
