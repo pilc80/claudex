@@ -198,7 +198,10 @@ pub fn anthropic_to_responses(
         body["instructions"] = json!(instructions);
     }
 
-    apply_reasoning(&mut body, anthropic);
+    // Note: Anthropic `thinking` is intentionally NOT translated to OpenAI
+    // `reasoning` — the two APIs differ conceptually and bridging them causes
+    // rejections on models that don't support `reasoning.summary` (e.g.
+    // gpt-5.3-codex-spark). Thinking is silently dropped instead.
     apply_text_format(&mut body, anthropic)?;
     apply_prompt_cache_key(&mut body, anthropic);
 
@@ -252,26 +255,6 @@ pub fn anthropic_to_responses(
     }
 
     Ok((body, tool_name_map))
-}
-
-fn apply_reasoning(body: &mut Value, anthropic: &Value) {
-    let effort = anthropic
-        .pointer("/output_config/effort")
-        .and_then(|v| v.as_str())
-        .or_else(|| {
-            anthropic
-                .pointer("/thinking/effort")
-                .and_then(|v| v.as_str())
-        })
-        .or_else(|| {
-            let thinking_enabled =
-                anthropic.pointer("/thinking/type").and_then(|v| v.as_str()) == Some("enabled");
-            thinking_enabled.then_some("medium")
-        });
-
-    if let Some(effort) = effort {
-        body["reasoning"] = json!({"effort": effort, "summary": "detailed"});
-    }
 }
 
 fn apply_text_format(body: &mut Value, anthropic: &Value) -> Result<()> {
@@ -1047,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_structured_output_and_prompt_cache_mapping() {
+    fn test_structured_output_and_prompt_cache_mapping() {
         let anthropic = json!({
             "model": "gpt-5.5",
             "messages": [{"role": "user", "content": "Return JSON"}],
@@ -1064,8 +1047,8 @@ mod tests {
         });
 
         let (body, _) = anthropic_to_responses(&anthropic, "gpt-5.5").unwrap();
-        assert_eq!(body["reasoning"]["effort"], "high");
-        assert_eq!(body["reasoning"]["summary"], "detailed");
+        // thinking/output_config.effort are NOT bridged to OpenAI reasoning.
+        assert!(body.get("reasoning").is_none());
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["name"], "result");
         assert_eq!(body["prompt_cache_key"], "claude-session-1");
