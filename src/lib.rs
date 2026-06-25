@@ -154,6 +154,8 @@ async fn run_launcher() -> Result<()> {
 
     init_logging(&config, true);
 
+    eprintln!("Claudex v{}", env!("CARGO_PKG_VERSION"));
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     maybe_check_release_before_startup(&args).await?;
 
@@ -475,6 +477,7 @@ async fn run_config_cli() -> Result<()> {
             hyperlinks,
             args,
         }) => {
+            eprintln!("Claudex v{}", env!("CARGO_PKG_VERSION"));
             maybe_check_release_before_startup(&args).await?;
             ensure_launcher_proxy(&mut config).await?;
 
